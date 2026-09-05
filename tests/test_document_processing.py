@@ -69,7 +69,7 @@ def test_upload_invalid_file_extension():
     """Verify that uploading files with forbidden extensions is rejected with 400."""
     file_content = b"fake binary content"
     response = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={
             "file": (
                 "malicious.exe",
@@ -88,7 +88,7 @@ def test_upload_invalid_mime_type():
     """Verify that uploading files with invalid MIME types is rejected with 400."""
     file_content = b"%PDF-1.4 dummy pdf header"
     response = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={
             "file": (
                 "document.pdf",
@@ -106,7 +106,7 @@ def test_upload_invalid_mime_type():
 def test_upload_empty_file():
     """Verify that uploading an empty file (0 bytes) is rejected with 400."""
     response = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("empty.pdf", io.BytesIO(b""), "application/pdf")},
     )
     assert response.status_code == 400
@@ -122,7 +122,7 @@ def test_upload_valid_pdf_document():
         "app.modules.documents.router.process_document_task.delay"
     ) as mock_delay:
         response = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={
                 "file": ("sample_test.pdf", io.BytesIO(pdf_bytes), "application/pdf")
             },
@@ -144,7 +144,7 @@ def test_get_document_by_id_and_not_found():
     pdf_bytes = b"%PDF-1.4 metadata test"
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={
                 "file": ("metadata_doc.pdf", io.BytesIO(pdf_bytes), "application/pdf")
             },
@@ -152,7 +152,7 @@ def test_get_document_by_id_and_not_found():
         doc_id = upload_resp.json()["data"]["document_id"]
 
     # Valid lookup
-    get_resp = client.get(f"/documents/{doc_id}")
+    get_resp = client.get(f"/api/v1/documents/{doc_id}")
     assert get_resp.status_code == 200
     doc_data = get_resp.json()["data"]
     assert doc_data["id"] == doc_id
@@ -160,7 +160,7 @@ def test_get_document_by_id_and_not_found():
     assert len(doc_data["jobs"]) >= 1
 
     # Missing lookup
-    missing_resp = client.get("/documents/doc_nonexistent_id")
+    missing_resp = client.get("/api/v1/documents/doc_nonexistent_id")
     assert missing_resp.status_code == 404
 
 
@@ -169,20 +169,20 @@ def test_get_job_status_and_in_progress_result():
     png_bytes = b"\x89PNG\r\n\x1a\n fake image content"
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={"file": ("image.png", io.BytesIO(png_bytes), "image/png")},
         )
         job_id = upload_resp.json()["data"]["job_id"]
 
     # Job status
-    job_resp = client.get(f"/jobs/{job_id}")
+    job_resp = client.get(f"/api/v1/jobs/{job_id}")
     assert job_resp.status_code == 200
     job_data = job_resp.json()["data"]
     assert job_data["id"] == job_id
     assert job_data["status"] == "queued"
 
     # Job result while still queued/processing
-    result_resp = client.get(f"/jobs/{job_id}/result")
+    result_resp = client.get(f"/api/v1/jobs/{job_id}/result")
     assert result_resp.status_code == 202
     resp_body = result_resp.json()
     msg = resp_body.get("message") or (resp_body.get("data") or {}).get("message", "")
@@ -195,7 +195,7 @@ def test_task_execution_success_and_result_retrieval():
     content = f"%PDF-1.4 worker flow test content {unique_marker}".encode()
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={"file": ("flow_doc.pdf", io.BytesIO(content), "application/pdf")},
         )
         data = upload_resp.json()["data"]
@@ -232,8 +232,8 @@ def test_task_execution_success_and_result_retrieval():
     finally:
         db.close()
 
-    # Verify GET /jobs/{job_id}/result returns 200 with text
-    result_resp = client.get(f"/jobs/{job_id}/result")
+    # Verify GET /api/v1/jobs/{job_id}/result returns 200 with text
+    result_resp = client.get(f"/api/v1/jobs/{job_id}/result")
     assert result_resp.status_code == 200
     res_data = result_resp.json()["data"]
     assert res_data["extracted_text"] == mock_text
@@ -246,7 +246,7 @@ def test_task_permanent_error_handling():
     content = f"%PDF-1.4 permanent error test {uuid.uuid4().hex}".encode()
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={"file": ("corrupt.pdf", io.BytesIO(content), "application/pdf")},
         )
         job_id = upload_resp.json()["data"]["job_id"]
@@ -271,7 +271,7 @@ def test_task_permanent_error_handling():
         db.close()
 
     # Result endpoint returns 400 Bad Request
-    result_resp = client.get(f"/jobs/{job_id}/result")
+    result_resp = client.get(f"/api/v1/jobs/{job_id}/result")
     assert result_resp.status_code == 400
     assert "Job processing failed" in result_resp.json()["message"]
 
@@ -281,7 +281,7 @@ def test_task_transient_retry_success():
     content = f"%PDF-1.4 transient recovery test {uuid.uuid4().hex}".encode()
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={
                 "file": (
                     "transient_recover.pdf",
@@ -328,7 +328,7 @@ def test_task_transient_error_exhaustion():
     content = f"%PDF-1.4 transient exhaustion test {uuid.uuid4().hex}".encode()
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={
                 "file": ("transient_fail.pdf", io.BytesIO(content), "application/pdf")
             },
@@ -367,7 +367,7 @@ def test_document_deduplication():
     # Upload document 1
     with patch("app.modules.documents.router.process_document_task.delay"):
         doc1_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={
                 "file": (
                     "doc_first.pdf",
@@ -385,7 +385,7 @@ def test_document_deduplication():
     # Upload identical document 2
     with patch("app.modules.documents.router.process_document_task.delay"):
         doc2_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={
                 "file": (
                     "doc_second.pdf",
@@ -408,7 +408,7 @@ def test_task_authentication_failure_is_permanent():
     content = f"%PDF-1.4 auth fail test {uuid.uuid4().hex}".encode()
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
-            "/documents",
+            "/api/v1/documents",
             files={"file": ("auth_fail.pdf", io.BytesIO(content), "application/pdf")},
         )
         job_id = upload_resp.json()["data"]["job_id"]
@@ -432,3 +432,12 @@ def test_task_authentication_failure_is_permanent():
         assert "Invalid API key" in (db_job.error or "")
     finally:
         db.close()
+
+
+def test_non_v1_endpoints_are_not_found():
+    """Verify that old top-level endpoints without /api/v1 prefix return 404 Not Found."""
+    assert client.post("/documents").status_code == 404
+    assert client.get("/documents/doc_dummy").status_code == 404
+    assert client.get("/jobs/job_dummy").status_code == 404
+    assert client.get("/jobs/job_dummy/result").status_code == 404
+    assert client.get("/health").status_code == 404

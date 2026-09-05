@@ -9,9 +9,9 @@
 
   // Configuration aligned with backend settings
   const CONFIG = {
-    UPLOAD_ENDPOINT: '/documents',
-    JOB_STATUS_ENDPOINT: (id) => `/jobs/${encodeURIComponent(id)}`,
-    JOB_RESULT_ENDPOINT: (id) => `/jobs/${encodeURIComponent(id)}/result`,
+    UPLOAD_ENDPOINT: '/api/v1/documents',
+    JOB_STATUS_ENDPOINT: (id) => `/api/v1/jobs/${encodeURIComponent(id)}`,
+    JOB_RESULT_ENDPOINT: (id) => `/api/v1/jobs/${encodeURIComponent(id)}/result`,
     MAX_FILE_SIZE_BYTES: 10 * 1024 * 1024, // 10 MB
     ALLOWED_EXTENSIONS: ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'tiff', 'bmp'],
     ALLOWED_MIME_TYPES: [
