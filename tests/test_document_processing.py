@@ -401,3 +401,34 @@ def test_document_deduplication():
     assert res2["cached"] is True
     # Processor call_count should STILL be 1 because it reused cached result!
     assert mock_processor.call_count == 1
+
+
+def test_task_authentication_failure_is_permanent():
+    """Verify that a 401 unauthenticated error fails immediately without retrying."""
+    content = f"%PDF-1.4 auth fail test {uuid.uuid4().hex}".encode()
+    with patch("app.modules.documents.router.process_document_task.delay"):
+        upload_resp = client.post(
+            "/documents",
+            files={"file": ("auth_fail.pdf", io.BytesIO(content), "application/pdf")},
+        )
+        job_id = upload_resp.json()["data"]["job_id"]
+
+    mock_processor = MockDocumentProcessor(
+        fail_with=PermanentProcessingError(
+            "Gemini authentication failed (401): Invalid API key or credentials. Please check GEMINI_API_KEY in .env."
+        )
+    )
+    set_document_processor(mock_processor)
+
+    with pytest.raises(PermanentProcessingError):
+        cast(Any, process_document_task).apply(args=[job_id]).get()
+
+    db = DatabaseService.get_session()
+    try:
+        db_job = db.query(Job).filter(Job.id == job_id).first()
+        assert db_job is not None
+        assert db_job.status == JobStatus.FAILED
+        assert db_job.attempts == 1  # Exactly 1 attempt - NO RETRIES!
+        assert "Invalid API key" in (db_job.error or "")
+    finally:
+        db.close()

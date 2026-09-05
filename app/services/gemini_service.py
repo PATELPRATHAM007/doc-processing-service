@@ -83,9 +83,27 @@ class GeminiDocumentProcessor(DocumentProcessor):
         except APIError as exc:
             err_msg = str(exc)
             status_code = getattr(exc, "code", None)
+
+            # Authentication / permission errors are permanent and should never retry
+            if (
+                status_code in (401, 403)
+                or "unauthenticated" in err_msg.lower()
+                or "permission_denied" in err_msg.lower()
+            ):
+                gemini_logger.error(
+                    "Gemini API authentication failed (status=%s): %s",
+                    status_code,
+                    err_msg,
+                )
+                raise PermanentProcessingError(
+                    f"Gemini authentication failed ({status_code or '401'}): Invalid API key or credentials. Please check GEMINI_API_KEY in .env."
+                ) from exc
+
             is_transient = (
                 status_code in (429, 500, 502, 503, 504)
-                or "rate" in err_msg.lower()
+                or "rate limit" in err_msg.lower()
+                or "too many requests" in err_msg.lower()
+                or "resource exhausted" in err_msg.lower()
                 or "quota" in err_msg.lower()
                 or "timeout" in err_msg.lower()
             )
