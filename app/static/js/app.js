@@ -483,7 +483,7 @@
       el.resultFileName.textContent = state.selectedFile ? state.selectedFile.name : 'Processed Document';
     }
     if (el.resultJobId) el.resultJobId.textContent = result.job_id || state.currentJobId;
-    if (el.resultProviderBadge) el.resultProviderBadge.textContent = result.provider || 'gemini-2.5-flash';
+    if (el.resultProviderBadge) el.resultProviderBadge.textContent = result.provider || 'gemini-3.6-flash';
     if (el.resultDuration) el.resultDuration.textContent = `${state.elapsedSeconds}s`;
 
     // Counts
