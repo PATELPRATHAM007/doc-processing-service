@@ -6,7 +6,7 @@ A production-ready asynchronous document processing backend microservice built w
 
 ## Interactive Web Interface & User Workflow
 
-The service provides an intuitive, high-contrast web dashboard directly accessible at `http://localhost:8000` (or `http://0.0.0.0:8000`). It gives users an end-to-end interactive experience to upload documents, monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
+The service provides an intuitive, high-contrast web dashboard directly accessible at `http://localhost:9000` (or `http://0.0.0.0:9000`). It gives users an end-to-end interactive experience to upload documents, monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
 
 ### 1. Document Upload Interface
 
@@ -395,9 +395,9 @@ docker compose up --build -d
 ```
 
 This boots 4 healthy containers:
-- `doc_service_db` (PostgreSQL 16 on `localhost:5432`)
-- `doc_service_redis` (Redis 7 on `localhost:6379`)
-- `doc_service_web` (FastAPI on `http://localhost:8000`)
+- `doc_service_db` (PostgreSQL 16 on `localhost:6432`)
+- `doc_service_redis` (Redis 7 on `localhost:7379`)
+- `doc_service_web` (FastAPI on `http://localhost:9000`)
 - `doc_service_worker` (Celery worker executing background tasks)
 
 *(Note: Database migrations run automatically on container startup via `docker-entrypoint.sh`).*
@@ -448,7 +448,7 @@ PROJECT_NAME="Async Document Processing Service"
 ENVIRONMENT="development"
 DEBUG=True
 HOST="0.0.0.0"
-PORT=8000
+PORT=9000
 
 # PostgreSQL
 DATABASE_URL="postgresql+psycopg2://postgres:postgrespassword@localhost:5432/doc_processing_db"
@@ -482,7 +482,7 @@ celery -A app.core.celery_app worker --loglevel=info --concurrency=2
 ### 6. Start FastAPI Application (Terminal 2)
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 9000
 ```
 
 ---
@@ -490,8 +490,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## REST API Endpoints & Example cURL Commands
 
 Interactive documentation is available at:
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **Swagger UI**: [http://localhost:9000/docs](http://localhost:9000/docs)
+- **ReDoc**: [http://localhost:9000/redoc](http://localhost:9000/redoc)
 
 ### 1. Upload a Document for Processing
 
@@ -499,7 +499,7 @@ Interactive documentation is available at:
 **Status**: `202 Accepted`
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/documents" \
+curl -X POST "http://localhost:9000/api/v1/documents" \
   -H "Accept: application/json" \
   -F "file=@sample_invoice.pdf;type=application/pdf"
 ```
@@ -532,7 +532,7 @@ curl -X POST "http://localhost:8000/api/v1/documents" \
 **Status**: `200 OK`
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/jobs/job_9f8e7d6c5b4a" \
+curl -X GET "http://localhost:9000/api/v1/jobs/job_9f8e7d6c5b4a" \
   -H "Accept: application/json"
 ```
 
@@ -567,7 +567,7 @@ curl -X GET "http://localhost:8000/api/v1/jobs/job_9f8e7d6c5b4a" \
 - If job **failed**: Returns `400 Bad Request` with failure details
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/jobs/job_9f8e7d6c5b4a/result" \
+curl -X GET "http://localhost:9000/api/v1/jobs/job_9f8e7d6c5b4a/result" \
   -H "Accept: application/json"
 ```
 
@@ -613,7 +613,7 @@ curl -X GET "http://localhost:8000/api/v1/jobs/job_9f8e7d6c5b4a/result" \
 **Status**: `200 OK`
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/documents/doc_a1b2c3d4e5f6" \
+curl -X GET "http://localhost:9000/api/v1/documents/doc_a1b2c3d4e5f6" \
   -H "Accept: application/json"
 ```
 
@@ -653,7 +653,7 @@ curl -X GET "http://localhost:8000/api/v1/documents/doc_a1b2c3d4e5f6" \
 ### 5. Health Probes
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/health"
+curl -X GET "http://localhost:9000/api/v1/health"
 ```
 
 **Response (`200 OK`)**:

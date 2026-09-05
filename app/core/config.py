@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    PORT: int = 9000
 
     # Allowed Hosts & CORS
     ALLOWED_HOSTS: str = "*"
