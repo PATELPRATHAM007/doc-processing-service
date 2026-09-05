@@ -27,3 +27,7 @@ htmlcov/
 # Logs
 logs/
 *.log
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
