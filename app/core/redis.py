@@ -1,6 +1,26 @@
+from typing import Any
+
 import redis
 
 from app.core.config import settings
+from logger_manager import LoggerManager
+
+redis_logger = LoggerManager(folder_name="redis")
+
+try:
+    from redis.maint_notifications import MaintNotificationsConfig
+
+    _maint_config: Any = MaintNotificationsConfig(enabled=False)
+except ImportError:
+    _maint_config = None
+
+
+def _redact_url(url: str) -> str:
+    """Strip credentials so Redis connection URL is safe to log."""
+    if "@" in url and "//" in url:
+        scheme, _, rest = url.partition("//")
+        return f"{scheme}//***@{rest.rpartition('@')[2]}"
+    return url
 
 
 class RedisService:
@@ -12,9 +32,15 @@ class RedisService:
     def get_pool(cls) -> redis.ConnectionPool:
         """Get or lazily initialize the shared Redis connection pool."""
         if cls._pool is None:
-            cls._pool = redis.ConnectionPool.from_url(
-                settings.REDIS_URL, decode_responses=True
+            redis_logger.info(
+                "Initializing shared Redis connection pool (url=%s)",
+                _redact_url(settings.REDIS_URL),
             )
+            pool_kwargs: dict[str, Any] = {"decode_responses": True}
+            if _maint_config is not None:
+                pool_kwargs["maint_notifications_config"] = _maint_config
+
+            cls._pool = redis.ConnectionPool.from_url(settings.REDIS_URL, **pool_kwargs)
         return cls._pool
 
     @classmethod
@@ -28,13 +54,15 @@ class RedisService:
         try:
             client = cls.get_client()
             return bool(client.ping())
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            redis_logger.error("Redis health ping failed: %s", exc)
             return False
 
     @classmethod
     def close(cls) -> None:
         """Disconnect and release connection pool resources."""
         if cls._pool is not None:
+            redis_logger.info("Closing Redis connection pool.")
             cls._pool.disconnect()
             cls._pool = None
 

@@ -96,7 +96,9 @@ def test_request_context_unhandled_exception():
 def test_security_service_token_decoding():
     import base64
     import json
+
     import pytest
+
     from app.core.security import SecurityService
 
     # Valid token
@@ -136,6 +138,7 @@ def test_security_service_token_decoding():
 def test_request_context_bearer_user_id_extraction():
     import base64
     import json
+
     from app.core.logging_config import user_id_var
 
     test_app = FastAPI()

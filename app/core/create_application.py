@@ -6,8 +6,10 @@ from app.core.lifespan import lifespan
 from app.core.logging_config import adopt_foreign_loggers, setup_logging
 from app.core.routers import setup_routers
 from app.core.setup_middleware import setup_middleware
+from logger_manager import LoggerManager
 
 setup_logging()
+system_logger = LoggerManager(folder_name="system")
 
 
 def create_application() -> FastAPI:
@@ -17,6 +19,11 @@ def create_application() -> FastAPI:
         Configured FastAPI application instance
     """
     adopt_foreign_loggers()
+    system_logger.info(
+        "Building FastAPI application instance (version=%s, env=%s)",
+        settings.VERSION,
+        settings.ENVIRONMENT,
+    )
 
     app = FastAPI(
         title=settings.PROJECT_NAME,

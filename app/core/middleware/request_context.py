@@ -7,10 +7,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from app.core import messages
-from app.core.logging_config import get_logger, request_id_var, user_id_var
+from app.core.logging_config import request_id_var, user_id_var
 from app.core.security import SecurityService
+from logger_manager import LoggerManager
 
-_api_logger = get_logger("api")
+api_logger = LoggerManager(folder_name="api")
 
 _QUIET_PREFIXES = ("/static", "/favicon")
 
@@ -54,9 +55,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             if not quiet:
                 duration_ms = (time.perf_counter() - started) * 1000
                 level = (
-                    _api_logger.warning
+                    api_logger.warning
                     if response.status_code >= 400
-                    else _api_logger.info
+                    else api_logger.info
                 )
                 level(
                     messages.LOG_REQUEST_LINE,
@@ -70,7 +71,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             return response
         except Exception:
             duration_ms = (time.perf_counter() - started) * 1000
-            _api_logger.exception(
+            api_logger.exception(
                 messages.LOG_REQUEST_EXCEPTION_LINE,
                 request.method,
                 request.url.path,

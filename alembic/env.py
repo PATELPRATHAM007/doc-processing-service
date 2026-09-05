@@ -18,6 +18,10 @@ if config.config_file_name is not None:
 
 from app.core.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
+from logger_manager import LoggerManager  # noqa: E402
+
+
+database_logger = LoggerManager(folder_name="database")
 
 
 # AUTO-DISCOVER AND IMPORT ALL MODULE MODELS
@@ -41,7 +45,9 @@ def import_all_module_models():
                     importlib.import_module(module_name)
                     imported_count += 1
                 except Exception as e:  # noqa: BLE001
-                    print(f"Failed to import {module_name}: {e}")
+                    database_logger.error(
+                        "Failed to import model module '%s': %s", module_name, e
+                    )
 
 
 # Import all models before setting target_metadata
@@ -55,6 +61,7 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
+    database_logger.info("Starting offline database migrations...")
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -65,10 +72,12 @@ def run_migrations_offline() -> None:
 
     with context.begin_transaction():
         context.run_migrations()
+    database_logger.info("Offline database migrations completed successfully.")
 
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    database_logger.info("Starting online database migrations...")
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -80,6 +89,7 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+    database_logger.info("Online database migrations completed successfully.")
 
 
 if context.is_offline_mode():

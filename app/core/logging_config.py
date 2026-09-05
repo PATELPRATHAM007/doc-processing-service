@@ -4,6 +4,7 @@ import threading
 from contextvars import ContextVar
 
 from app.core.config import settings
+from logger_manager import LoggerManager
 
 NO_CONTEXT = "-"
 LOGGER_NAMESPACE = "docservice"
@@ -28,11 +29,7 @@ class ContextFilter(logging.Filter):
             else ""
         )
         prefix = f"{LOGGER_NAMESPACE}."
-        record.short_name = (
-            record.name[len(prefix) :]
-            if record.name.startswith(prefix)
-            else record.name
-        )
+        record.short_name = record.name.removeprefix(prefix)
         return True
 
 
@@ -60,6 +57,11 @@ def setup_logging() -> None:
         root.handlers.clear()
         root.addHandler(handler)
 
+        # Silence noisy third-party debug loggers in console output
+        logging.getLogger("redis").setLevel(logging.INFO)
+        logging.getLogger("redis.connection").setLevel(logging.INFO)
+        logging.getLogger("asyncio").setLevel(logging.INFO)
+
         _configured = True
 
 
@@ -73,7 +75,9 @@ def adopt_foreign_loggers() -> None:
 
 
 def get_logger(category: str = "system") -> logging.Logger:
-    """Get a named logger, configuring root logging if not yet initialized."""
-    setup_logging()
-    name = f"docservice.{category}" if category else "docservice.system"
-    return logging.getLogger(name)
+    """Get a centralized rotating logger managed by LoggerManager."""
+    manager = LoggerManager(
+        folder_name=category or "system",
+        logger_name=f"{LOGGER_NAMESPACE}.{category or 'system'}",
+    )
+    return manager.logger

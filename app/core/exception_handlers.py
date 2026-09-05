@@ -4,9 +4,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.logging_config import get_logger
+from logger_manager import LoggerManager
 
-logger = get_logger("api")
+api_logger = LoggerManager(folder_name="api")
 
 
 def _error_response(
@@ -35,7 +35,6 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         _: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        logger.warning(f"Validation error: {exc.errors()}")
         issues = [
             {
                 "field": str(e.get("loc", ())[-1]) if e.get("loc") else "",
@@ -43,9 +42,14 @@ def register_exception_handlers(app: FastAPI) -> None:
             }
             for e in exc.errors()
         ]
+        api_logger.warning("Request validation failed (422): %s", issues)
         return _error_response(422, "Validation failed", issues)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        if exc.status_code >= 500:
+            api_logger.error("HTTPException [%d]: %s", exc.status_code, detail)
+        else:
+            api_logger.warning("HTTPException [%d]: %s", exc.status_code, detail)
         return _error_response(exc.status_code, detail, headers=exc.headers)

@@ -7,32 +7,33 @@ import os
 import platform
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.core.config import settings
-from app.core.logging_config import get_logger
+from logger_manager import LoggerManager
 
-logger = get_logger("system")
+system_logger = LoggerManager(folder_name="system")
 
 _WIDTH = 80
 _LABEL_WIDTH = 22
 
 
 def _banner(title: str) -> None:
-    logger.info("=" * _WIDTH)
-    logger.info(title.center(_WIDTH).rstrip())
-    logger.info("=" * _WIDTH)
+    system_logger.info("=" * _WIDTH)
+    system_logger.info(title.center(_WIDTH).rstrip())
+    system_logger.info("=" * _WIDTH)
 
 
 def _section(title: str) -> None:
-    logger.info("-" * _WIDTH)
-    logger.info(title)
-    logger.info("-" * _WIDTH)
+    system_logger.info("-" * _WIDTH)
+    system_logger.info(title)
+    system_logger.info("-" * _WIDTH)
 
 
 def _field(label: str, value: Any) -> None:
-    logger.info("%s: %s", label.ljust(_LABEL_WIDTH), value)
+    system_logger.info("%s: %s", label.ljust(_LABEL_WIDTH), value)
 
 
 def _probe(
@@ -43,14 +44,14 @@ def _probe(
     doing: str | None = None,
 ) -> bool:
     """Run one health probe. Returns True on success."""
-    logger.info("%s...", doing or f"Connecting to {label}")
+    system_logger.info("%s...", doing or f"Connecting to {label}")
     try:
         detail = fn()
     except Exception as exc:  # noqa: BLE001
-        log = logger.error if required else logger.warning
+        log = system_logger.error if required else system_logger.warning
         log("%s: Failed — %s", label.ljust(_LABEL_WIDTH), exc)
         return False
-    logger.info("%s: %s", label.ljust(_LABEL_WIDTH), detail or "OK")
+    system_logger.info("%s: %s", label.ljust(_LABEL_WIDTH), detail or "OK")
     return True
 
 
@@ -104,14 +105,11 @@ def _check_migrations() -> str:
 
 
 def _check_redis() -> str:
-    import redis
+    from app.core.redis import RedisService
 
-    client = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=3)
-    try:
-        client.ping()
-        return f"Connection established ({_redact_url(settings.REDIS_URL)})"
-    finally:
-        client.close()
+    client = RedisService.get_client()
+    client.ping()
+    return f"Connection established ({_redact_url(settings.REDIS_URL)})"
 
 
 def _redact_url(url: str) -> str:
@@ -157,8 +155,8 @@ def log_startup_report(
     try:
         detected_host, detected_port = resolve_bind_address()
         _render(app, host or detected_host, port or detected_port)
-    except Exception:  # noqa: BLE001
-        logger.exception(
+    except Exception:
+        system_logger.exception(
             "Could not render the startup report. This does not affect the application."
         )
 
@@ -166,27 +164,27 @@ def log_startup_report(
 def log_ready(started_at: float) -> None:
     """Log the single line that closes startup, once initialization completes."""
     try:
-        logger.info(
+        system_logger.info(
             "%s is ready — startup completed in %.2f seconds.",
             settings.PROJECT_NAME,
             time.perf_counter() - started_at,
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("Could not log the ready line.")
+    except Exception:
+        system_logger.exception("Could not log the ready line.")
 
 
 def _render(app: Any, host: str, port: int) -> None:
     import fastapi
 
     _banner(settings.PROJECT_NAME.upper())
-    logger.info("Starting %s...", settings.PROJECT_NAME)
+    system_logger.info("Starting %s...", settings.PROJECT_NAME)
     _field("Environment", settings.ENVIRONMENT.capitalize())
     _field("Version", f"v{settings.VERSION}")
     _field("Python", platform.python_version())
     _field("FastAPI", fastapi.__version__)
     _field("Host", host)
     _field("Port", port)
-    logger.info("")
+    system_logger.info("")
 
     _section("Database")
     db_ok = _probe("PostgreSQL", _check_database)
@@ -198,15 +196,15 @@ def _render(app: Any, host: str, port: int) -> None:
             doing="Checking database migrations",
         )
     else:
-        logger.warning(
+        system_logger.warning(
             "%s: Skipped — no database connection to check against",
             "Migrations".ljust(_LABEL_WIDTH),
         )
-    logger.info("")
+    system_logger.info("")
 
     _section("Redis")
     _probe("Redis", _check_redis, required=False)
-    logger.info("")
+    system_logger.info("")
 
     _section("Services")
     _field("Queue", settings.QUEUE_NAME)
@@ -214,11 +212,11 @@ def _render(app: Any, host: str, port: int) -> None:
     route_count = len(getattr(app, "routes", []))
     _field("Middleware", f"{middleware_count} registered")
     _field("Routes", f"{route_count} registered")
-    logger.info("")
+    system_logger.info("")
 
     _section("Application")
     base = _base_url(host, port)
     _field("Application URL", base)
     _field("Swagger UI", f"{base}/docs")
     _field("ReDoc", f"{base}/redoc")
-    logger.info("=" * _WIDTH)
+    system_logger.info("=" * _WIDTH)

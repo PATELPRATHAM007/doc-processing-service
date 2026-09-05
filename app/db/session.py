@@ -4,6 +4,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
+from logger_manager import LoggerManager
+
+database_logger = LoggerManager(folder_name="database")
 
 
 def _engine_kwargs() -> dict:
@@ -44,12 +47,14 @@ class DatabaseService:
             with cls.engine.connect() as conn:
                 conn.exec_driver_sql("SELECT 1")
                 return True
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            database_logger.error("Database connectivity check failed: %s", exc)
             return False
 
     @classmethod
     def close(cls) -> None:
         """Dispose of the connection pool."""
+        database_logger.info("Disposing database connection pool.")
         cls.engine.dispose()
 
 
@@ -58,6 +63,11 @@ def get_db() -> Generator[Session, None, None]:
     db = DatabaseService.get_session()
     try:
         yield db
+    except Exception:
+        database_logger.exception(
+            "Database transaction failed during session execution"
+        )
+        raise
     finally:
         db.close()
 
