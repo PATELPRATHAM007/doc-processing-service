@@ -4,7 +4,6 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
-from app.api.v1.endpoints.health import health_check
 from app.core.config import settings
 
 router = APIRouter(tags=["root"])
@@ -36,7 +35,3 @@ def root(request: Request) -> Any:
         "status": "running",
         "docs": "/docs",
     }
-
-
-# Also expose /health at root level for orchestrator/docker health probes
-router.add_api_route("/health", health_check, methods=["GET"], tags=["health"])

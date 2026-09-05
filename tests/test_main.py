@@ -16,13 +16,10 @@ def test_root_endpoint():
     assert "X-Request-ID" in response.headers
 
 
-def test_health_endpoint():
+def test_health_endpoint_not_found_without_v1_prefix():
+    """Verify that old top-level /health without /api/v1 prefix returns 404."""
     response = client.get("/health")
-    assert response.status_code in [200, 503]
-    body = response.json()
-    assert "status" in body["data"]
-    assert "environment" in body["data"]
-    assert "X-Request-ID" in response.headers
+    assert response.status_code == 404
 
 
 def test_v1_health_endpoint():

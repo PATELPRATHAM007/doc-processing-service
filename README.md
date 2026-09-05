@@ -16,7 +16,7 @@ Users can easily upload files via drag-and-drop or file browser:
 
 - **Supported Formats**: `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.tiff`, `.bmp` (up to 10 MB).
 - **Client-Side Validation**: Checks file extensions and sizes instantly, presenting a file preview card with type badges and formatted file sizes.
-- **Single-Click Ingestion**: Clicking **"Process Document"** streams the file to `POST /documents`. The FastAPI backend computes a SHA-256 hash in 64 KB chunks, writes the file to storage, enqueues the job into Redis, and returns an immediate `202 Accepted` response with a unique `job_id`.
+- **Single-Click Ingestion**: Clicking **"Process Document"** streams the file to `POST /api/v1/documents`. The FastAPI backend computes a SHA-256 hash in 64 KB chunks, writes the file to storage, enqueues the job into Redis, and returns an immediate `202 Accepted` response with a unique `job_id`.
 
 ---
 
@@ -30,25 +30,35 @@ Once submitted, the UI seamlessly transitions into the active processing view:
   3. **Multimodal OCR Extraction**: Analyzed with Google Gemini 3.6 Flash for text, tables, and formatting.
   4. **Store Results**: Results committed to PostgreSQL with duplicate detection.
 - **Live Elapsed Timer**: Visual stopwatch showing processing duration.
-- **Continuous Polling Without Timeouts**: The frontend polls `GET /jobs/{id}` every 1.5 seconds without artificial client timeouts. If the AI model encounters transient rate limits or high demand, the worker automatically applies exponential backoff and retries, while the UI dynamically informs the user.
+- **Continuous Polling Without Timeouts**: The frontend polls `GET /api/v1/jobs/{id}` every 1.5 seconds without artificial client timeouts. If the AI model encounters transient rate limits or high demand, the worker automatically applies exponential backoff and retries, while the UI dynamically informs the user.
 - **Cancel Button**: A "Cancel & Return to Upload" button lets users abort waiting and return to the upload screen at any time.
 
 ---
 
 ### 3. Extracted Document Output & Results
 
-When the worker finishes processing, the interface automatically renders the extracted output viewer:
+When the background worker completes processing, the frontend automatically transitions to the comprehensive extraction results screen:
 
 ![Document Extraction Result](docs/images/document-extraction-result.png)
 
-- **Extraction Metadata & Status**: Displays the original filename, `Completed` status badge, AI model provider badge (`gemini-3.6-flash`), and total processing duration.
-- **Real-Time Text Metrics**: Live counters displaying character count, word count, and line count.
-- **Syntax & Structure Preservation**: Code container preserving original indentation, tabular columns, bullet lists, and paragraphs verbatim.
-- **In-Document Keyword Search**: Interactive search bar with instant `<mark>` highlighting across the extracted document.
-- **One-Click Actions**:
-  - **Copy Text**: Copies the raw text directly to clipboard with visual confirmation.
-  - **Download .txt**: Automatically creates and downloads a `<filename>_extracted.txt` file.
-  - **Process Another**: Resets the viewer and returns to the upload screen without refreshing the page.
+#### Explanation of the Output Interface Components:
+1. **Document Header Banner**:
+   - **Status Badge**: Green `Completed` badge indicating successful worker execution.
+   - **AI Model Badge**: Identifies the exact OCR engine used (e.g. `gemini-3.6-flash`).
+   - **Document Title**: Clean display of the original uploaded document filename (e.g. `Take-Home Assignment - Python Developer.pdf`).
+   - **Job Metadata**: Shows the unique Celery tracking `Job ID` (e.g. `job_8a96181d1ae7`) and total execution duration (`Processed in 37s`).
+2. **Document Metrics Bar**:
+   - **Character Count**: Exact count of all extracted characters (e.g. `8,163` characters).
+   - **Word Count**: Accurate word count calculation (e.g. `1,252` words).
+   - **Line Count**: Total line count (e.g. `390` lines).
+3. **Interactive Search & Filter**:
+   - Real-time client-side text search box (`Find in text...`). Matching terms are highlighted with `<mark>` tags instantly as you type.
+4. **Structured Text Container**:
+   - Monospace viewer preserving exact document layout, markdown formatting, section headers (`### Problem Statement`), bold tags, bullet points, and tabular structures verbatim.
+5. **One-Click Action Toolbar**:
+   - **Copy Text**: Copies the entire raw extracted text directly to the system clipboard with instant visual confirmation.
+   - **Download .txt**: Downloads the full extracted text as a clean `<filename>_extracted.txt` file directly to your downloads folder.
+   - **Process Another**: Resets the viewer and returns to the upload screen for the next document without needing a full page refresh.
 
 ---
 
@@ -61,8 +71,8 @@ The service is designed around an asynchronous, event-driven, decoupled worker a
                                   |            Client / Frontend          |
                                   +---------------------------------------+
                                          |                         ^
-              1. POST /documents (Upload)|                         | 5. Poll GET /jobs/{id}
-                                         v                         |    GET /jobs/{id}/result
+       1. POST /api/v1/documents (Upload)|                         | 5. Poll GET /api/v1/jobs/{id}
+                                         v                         |    GET /api/v1/jobs/{id}/result
                                   +--------------------+           |
                                   |    FastAPI Web     |-----------+
                                   |    (Uvicorn API)   |
@@ -282,11 +292,11 @@ Interactive documentation is available at:
 
 ### 1. Upload a Document for Processing
 
-**Endpoint**: `POST /documents` (or `POST /api/v1/documents`)
+**Endpoint**: `POST /api/v1/documents`
 **Status**: `202 Accepted`
 
 ```bash
-curl -X POST "http://localhost:8000/documents" \
+curl -X POST "http://localhost:8000/api/v1/documents" \
   -H "Accept: application/json" \
   -F "file=@sample_invoice.pdf;type=application/pdf"
 ```
@@ -315,11 +325,11 @@ curl -X POST "http://localhost:8000/documents" \
 
 ### 2. Check Job Processing Status
 
-**Endpoint**: `GET /jobs/{job_id}`
+**Endpoint**: `GET /api/v1/jobs/{job_id}`
 **Status**: `200 OK`
 
 ```bash
-curl -X GET "http://localhost:8000/jobs/job_9f8e7d6c5b4a" \
+curl -X GET "http://localhost:8000/api/v1/jobs/job_9f8e7d6c5b4a" \
   -H "Accept: application/json"
 ```
 
@@ -347,14 +357,14 @@ curl -X GET "http://localhost:8000/jobs/job_9f8e7d6c5b4a" \
 
 ### 3. Retrieve Extracted Text Result
 
-**Endpoint**: `GET /jobs/{job_id}/result`
+**Endpoint**: `GET /api/v1/jobs/{job_id}/result`
 
 - If job is **still in progress**: Returns `202 Accepted`
 - If job is **completed**: Returns `200 OK` with extracted text
 - If job **failed**: Returns `400 Bad Request` with failure details
 
 ```bash
-curl -X GET "http://localhost:8000/jobs/job_9f8e7d6c5b4a/result" \
+curl -X GET "http://localhost:8000/api/v1/jobs/job_9f8e7d6c5b4a/result" \
   -H "Accept: application/json"
 ```
 
@@ -396,11 +406,11 @@ curl -X GET "http://localhost:8000/jobs/job_9f8e7d6c5b4a/result" \
 
 ### 4. Retrieve Document Metadata and History
 
-**Endpoint**: `GET /documents/{document_id}`
+**Endpoint**: `GET /api/v1/documents/{document_id}`
 **Status**: `200 OK`
 
 ```bash
-curl -X GET "http://localhost:8000/documents/doc_a1b2c3d4e5f6" \
+curl -X GET "http://localhost:8000/api/v1/documents/doc_a1b2c3d4e5f6" \
   -H "Accept: application/json"
 ```
 
@@ -440,7 +450,7 @@ curl -X GET "http://localhost:8000/documents/doc_a1b2c3d4e5f6" \
 ### 5. Health Probes
 
 ```bash
-curl -X GET "http://localhost:8000/health"
+curl -X GET "http://localhost:8000/api/v1/health"
 ```
 
 **Response (`200 OK`)**:
