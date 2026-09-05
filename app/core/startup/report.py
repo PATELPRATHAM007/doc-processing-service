@@ -74,7 +74,6 @@ def _check_migrations() -> str:
         from alembic.config import Config
         from alembic.runtime.migration import MigrationContext
         from alembic.script import ScriptDirectory
-
         from app.db.session import engine
 
         project_root = Path(__file__).resolve().parent.parent.parent.parent

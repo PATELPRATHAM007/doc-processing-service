@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import uuid
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -117,10 +118,14 @@ def test_upload_empty_file():
 def test_upload_valid_pdf_document():
     """Verify successful upload of a PDF document returning 202 Accepted and job_id."""
     pdf_bytes = b"%PDF-1.4 sample pdf content for unit testing"
-    with patch("app.modules.documents.router.process_document_task.delay") as mock_delay:
+    with patch(
+        "app.modules.documents.router.process_document_task.delay"
+    ) as mock_delay:
         response = client.post(
             "/documents",
-            files={"file": ("sample_test.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+            files={
+                "file": ("sample_test.pdf", io.BytesIO(pdf_bytes), "application/pdf")
+            },
         )
         assert response.status_code == 202
         body = response.json()
@@ -140,7 +145,9 @@ def test_get_document_by_id_and_not_found():
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
             "/documents",
-            files={"file": ("metadata_doc.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+            files={
+                "file": ("metadata_doc.pdf", io.BytesIO(pdf_bytes), "application/pdf")
+            },
         )
         doc_id = upload_resp.json()["data"]["document_id"]
 
@@ -200,7 +207,7 @@ def test_task_execution_success_and_result_retrieval():
     set_document_processor(mock_processor)
 
     # Run the task synchronously
-    task_res = process_document_task.apply(args=[job_id]).get()
+    task_res = cast(Any, process_document_task).apply(args=[job_id]).get()
     assert task_res["status"] == "completed"
     assert task_res["char_count"] == len(mock_text)
     assert task_res["provider"] == "mock-gemini-v2"
@@ -209,11 +216,13 @@ def test_task_execution_success_and_result_retrieval():
     db = DatabaseService.get_session()
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
+        assert db_job is not None
         assert db_job.status == JobStatus.COMPLETED
         assert db_job.attempts == 1
         assert db_job.completed_at is not None
 
         db_doc = db.query(Document).filter(Document.id == doc_id).first()
+        assert db_doc is not None
         assert db_doc.status == DocumentStatus.PROCESSED
 
         db_result = db.query(Result).filter(Result.job_id == job_id).first()
@@ -249,14 +258,15 @@ def test_task_permanent_error_handling():
 
     # Task raises and fails permanently
     with pytest.raises(PermanentProcessingError):
-        process_document_task.apply(args=[job_id]).get()
+        cast(Any, process_document_task).apply(args=[job_id]).get()
 
     # Verify DB state
     db = DatabaseService.get_session()
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
+        assert db_job is not None
         assert db_job.status == JobStatus.FAILED
-        assert "Unrecoverable corrupt document" in db_job.error
+        assert "Unrecoverable corrupt document" in (db_job.error or "")
     finally:
         db.close()
 
@@ -299,13 +309,14 @@ def test_task_transient_retry_success():
     processor = TransientThenSuccessProcessor()
     set_document_processor(processor)
 
-    task_res = process_document_task.apply(args=[job_id]).get()
+    task_res = cast(Any, process_document_task).apply(args=[job_id]).get()
     assert task_res["status"] == "completed"
     assert processor.attempts == 2
 
     db = DatabaseService.get_session()
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
+        assert db_job is not None
         assert db_job.status == JobStatus.COMPLETED
         assert db_job.attempts == 2
     finally:
@@ -318,7 +329,9 @@ def test_task_transient_error_exhaustion():
     with patch("app.modules.documents.router.process_document_task.delay"):
         upload_resp = client.post(
             "/documents",
-            files={"file": ("transient_fail.pdf", io.BytesIO(content), "application/pdf")},
+            files={
+                "file": ("transient_fail.pdf", io.BytesIO(content), "application/pdf")
+            },
         )
         job_id = upload_resp.json()["data"]["job_id"]
 
@@ -328,12 +341,13 @@ def test_task_transient_error_exhaustion():
     set_document_processor(mock_processor)
 
     with pytest.raises(TransientProcessingError):
-        process_document_task.apply(args=[job_id]).get()
+        cast(Any, process_document_task).apply(args=[job_id]).get()
 
     # Check job updated with max retries exceeded and status FAILED
     db = DatabaseService.get_session()
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
+        assert db_job is not None
         assert db_job.status == JobStatus.FAILED
         assert db_job.attempts == 3
         assert "Max retries exceeded" in (db_job.error or "")
@@ -344,7 +358,9 @@ def test_task_transient_error_exhaustion():
 def test_document_deduplication():
     """Verify that identical file uploads reuse cached extraction results without reprocessing."""
     marker = uuid.uuid4().hex
-    identical_content = f"%PDF-1.4 identical document for deduplication test {marker}".encode()
+    identical_content = (
+        f"%PDF-1.4 identical document for deduplication test {marker}".encode()
+    )
     mock_processor = MockDocumentProcessor(text="Original extracted text from file 1")
     set_document_processor(mock_processor)
 
@@ -363,7 +379,7 @@ def test_document_deduplication():
         job1_id = doc1_resp.json()["data"]["job_id"]
 
     # Process document 1
-    process_document_task.apply(args=[job1_id]).get()
+    cast(Any, process_document_task).apply(args=[job1_id]).get()
     assert mock_processor.call_count == 1
 
     # Upload identical document 2
@@ -381,7 +397,7 @@ def test_document_deduplication():
         job2_id = doc2_resp.json()["data"]["job_id"]
 
     # Process document 2
-    res2 = process_document_task.apply(args=[job2_id]).get()
+    res2 = cast(Any, process_document_task).apply(args=[job2_id]).get()
     assert res2["cached"] is True
     # Processor call_count should STILL be 1 because it reused cached result!
     assert mock_processor.call_count == 1
