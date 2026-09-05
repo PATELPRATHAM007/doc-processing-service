@@ -20,7 +20,6 @@ from app.core.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from logger_manager import LoggerManager  # noqa: E402
 
-
 database_logger = LoggerManager(folder_name="database")
 
 
