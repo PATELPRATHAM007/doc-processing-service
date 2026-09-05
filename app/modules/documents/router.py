@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -41,7 +41,9 @@ router = APIRouter(tags=["documents"])
     summary="Upload a document for asynchronous processing",
 )
 async def upload_document(
-    file: Annotated[UploadFile, File(description="PDF or image file to extract text from")],
+    file: Annotated[
+        UploadFile, File(description="PDF or image file to extract text from")
+    ],
     db: Annotated[Session, Depends(get_db)],
 ) -> Any:
     """Accept a document upload, persist metadata, create a processing job,
@@ -167,7 +169,7 @@ async def upload_document(
 
     # Dispatch Celery background task
     try:
-        process_document_task.delay(job_id=job.id)
+        cast(Any, process_document_task).delay(job_id=job.id)
         api_logger.info("Dispatched Celery task for job_id=%s", job.id)
     except Exception as exc:
         api_logger.error("Failed to enqueue Celery task for job_id=%s: %s", job.id, exc)
@@ -222,7 +224,13 @@ def list_documents(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> Any:
     """List documents with pagination."""
-    return db.query(Document).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+    return (
+        db.query(Document)
+        .order_by(Document.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 @router.get(

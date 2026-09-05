@@ -27,7 +27,9 @@ class Settings(BaseSettings):
     CORS_ALLOW_HEADERS: str = "*"
 
     # PostgreSQL Database
-    DATABASE_URL: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/doc_processing_db"
+    DATABASE_URL: str = (
+        "postgresql+psycopg2://postgres:postgres@localhost:5432/doc_processing_db"
+    )
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
 

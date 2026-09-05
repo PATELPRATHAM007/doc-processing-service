@@ -60,7 +60,9 @@ def process_document_task(self: Task, job_id: str) -> dict[str, Any]:
 
         # Idempotency check: if job already succeeded, return immediately
         if job.status == JobStatus.COMPLETED:
-            task_logger.info("Job %s is already completed. Skipping redundant processing.", job_id)
+            task_logger.info(
+                "Job %s is already completed. Skipping redundant processing.", job_id
+            )
             return {
                 "job_id": job.id,
                 "document_id": job.document_id,
@@ -148,7 +150,9 @@ def process_document_task(self: Task, job_id: str) -> dict[str, Any]:
             document.size_bytes,
         )
 
-        extracted = processor.process(file_path=file_path, content_type=document.content_type)
+        extracted = processor.process(
+            file_path=file_path, content_type=document.content_type
+        )
 
         # Persist result idempotently
         existing_result = db.query(Result).filter(Result.job_id == job.id).first()
@@ -206,13 +210,19 @@ def process_document_task(self: Task, job_id: str) -> dict[str, Any]:
             raise self.retry(exc=exc, countdown=countdown) from exc
 
         # All retries exhausted
-        task_logger.error("Job %s exhausted all %d retries: %s", job_id, self.max_retries + 1, exc)
+        task_logger.error(
+            "Job %s exhausted all %d retries: %s", job_id, self.max_retries + 1, exc
+        )
         job = db.query(Job).filter(Job.id == job_id).first()
         if job:
             job.status = JobStatus.FAILED
             job.completed_at = datetime.now(timezone.utc)
             job.error = f"Max retries exceeded ({self.max_retries + 1} attempts): {exc}"
-        doc = db.query(Document).filter(Document.id == (job.document_id if job else "")).first()
+        doc = (
+            db.query(Document)
+            .filter(Document.id == (job.document_id if job else ""))
+            .first()
+        )
         if doc:
             doc.status = DocumentStatus.FAILED
         db.commit()
@@ -225,7 +235,11 @@ def process_document_task(self: Task, job_id: str) -> dict[str, Any]:
             job.status = JobStatus.FAILED
             job.completed_at = datetime.now(timezone.utc)
             job.error = str(exc)
-        doc = db.query(Document).filter(Document.id == (job.document_id if job else "")).first()
+        doc = (
+            db.query(Document)
+            .filter(Document.id == (job.document_id if job else ""))
+            .first()
+        )
         if doc:
             doc.status = DocumentStatus.FAILED
         db.commit()
