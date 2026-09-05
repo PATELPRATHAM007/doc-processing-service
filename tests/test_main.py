@@ -41,6 +41,7 @@ def test_frontend_html_rendering():
     assert "DocuExtract" in response.text
     assert "dropZone" in response.text
     assert "btnProcess" in response.text
+    assert "btnCancelProcessing" in response.text
     assert "resultSection" in response.text
 
 
@@ -57,3 +58,5 @@ def test_static_css_and_js_served():
     assert js_resp.status_code == 200
     assert "javascript" in js_resp.headers["content-type"]
     assert "DocuExtract" in js_resp.text
+    assert "MAX_POLL_ATTEMPTS: null" in js_resp.text
+    assert "btnCancelProcessing" in js_resp.text

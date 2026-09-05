@@ -23,7 +23,7 @@
       'image/bmp',
     ],
     POLL_INTERVAL_MS: 1500,
-    MAX_POLL_ATTEMPTS: 80, // ~120 seconds timeout
+    MAX_POLL_ATTEMPTS: null, // No timeout limit — poll until job completed or failed
   };
 
   // State
@@ -75,6 +75,7 @@
       processingStatusTag: document.getElementById('processingStatusTag'),
       processingJobId: document.getElementById('processingJobId'),
       processingElapsedTime: document.getElementById('processingElapsedTime'),
+      btnCancelProcessing: document.getElementById('btnCancelProcessing'),
       stepUpload: document.getElementById('stepUpload'),
       stepQueue: document.getElementById('stepQueue'),
       stepExtract: document.getElementById('stepExtract'),
@@ -158,6 +159,9 @@
 
     // Process another / new document
     if (el.btnNewDocument) el.btnNewDocument.addEventListener('click', resetApplication);
+
+    // Cancel in-progress processing
+    if (el.btnCancelProcessing) el.btnCancelProcessing.addEventListener('click', handleCancelProcessing);
 
     // Scroll to top
     if (el.btnScrollToTop) {
@@ -340,17 +344,6 @@
     const poll = async () => {
       state.pollAttempts += 1;
 
-      if (state.pollAttempts > CONFIG.MAX_POLL_ATTEMPTS) {
-        stopPolling();
-        stopElapsedTimer();
-        showError(
-          'Document processing timed out after 2 minutes. The task may still be running in the background.',
-          'Processing Timeout'
-        );
-        resetApplication();
-        return;
-      }
-
       try {
         const response = await fetch(CONFIG.JOB_STATUS_ENDPOINT(jobId));
         if (!response.ok) {
@@ -361,7 +354,7 @@
             resetApplication();
             return;
           }
-          // Temporary server error, continue polling
+          // Temporary server error, continue polling without timing out
           scheduleNextPoll(poll);
           return;
         }
@@ -370,7 +363,7 @@
         const jobData = json.data || json;
         const status = (jobData.status || '').toLowerCase();
 
-        updateProcessingUIState(status);
+        updateProcessingUIState(status, jobData);
 
         if (status === 'completed') {
           stopPolling();
@@ -383,7 +376,7 @@
           showError(reason, 'Processing Failed');
           resetApplication();
         } else {
-          // Still pending or processing
+          // Still pending or processing - continue polling indefinitely until terminal status
           scheduleNextPoll(poll);
         }
       } catch (err) {
@@ -407,8 +400,20 @@
     }
   }
 
-  function updateProcessingUIState(status) {
-    if (el.processingStatusTag) el.processingStatusTag.textContent = status;
+  function handleCancelProcessing() {
+    stopPolling();
+    stopElapsedTimer();
+    resetApplication();
+  }
+
+  function updateProcessingUIState(status, jobData) {
+    if (el.processingStatusTag) {
+      if (jobData && jobData.attempts > 1 && status === 'processing') {
+        el.processingStatusTag.textContent = `processing (attempt ${jobData.attempts})`;
+      } else {
+        el.processingStatusTag.textContent = status;
+      }
+    }
 
     if (status === 'pending' || status === 'queued') {
       setStepState(el.stepUpload, 'completed');
@@ -424,7 +429,11 @@
       setStepState(el.stepExtract, 'active');
       setStepState(el.stepPersist, 'pending');
       if (el.processingSubheader) {
-        el.processingSubheader.textContent = 'Google Gemini Multimodal OCR extracting text & tables...';
+        if (jobData && jobData.error && jobData.error.toLowerCase().includes('transient')) {
+          el.processingSubheader.textContent = 'High AI model load encountered; worker is backing off & retrying automatically...';
+        } else {
+          el.processingSubheader.textContent = 'Google Gemini Multimodal OCR extracting text & tables...';
+        }
       }
     } else if (status === 'completed') {
       setStepState(el.stepUpload, 'completed');
