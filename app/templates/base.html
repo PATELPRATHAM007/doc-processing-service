@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ project_name|default("DocuExtract") }} — Modern Asynchronous Document OCR{% endblock %}</title>
+    <meta name="description" content="Extract structured text, key-value data, and tables from PDFs and image documents using asynchronous background OCR workers.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Bootstrap 5 & Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <!-- Custom Theme Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="d-flex flex-column min-vh-100">
+    <!-- Navbar Header -->
+    <header class="app-header py-3 sticky-top">
+        <div class="container d-flex align-items-center justify-content-between">
+            <a href="/" class="brand-link d-flex align-items-center gap-2 text-decoration-none" id="brandLogo">
+                <span class="brand-icon-wrapper">
+                    <i class="bi bi-file-earmark-text-fill"></i>
+                </span>
+                <div class="d-flex flex-column">
+                    <span class="brand-title">DocuExtract</span>
+                    <span class="brand-subtitle d-none d-sm-inline">Async Multimodal OCR</span>
+                </div>
+            </a>
+
+            <nav class="d-flex align-items-center gap-2">
+                <span class="badge status-pill d-none d-md-inline-flex align-items-center gap-1">
+                    <span class="status-dot"></span>
+                    <span>v{{ version|default("0.1.0") }} • Celery Worker Ready</span>
+                </span>
+                <a href="/docs" target="_blank" rel="noopener noreferrer" class="btn btn-outline-nav btn-sm d-flex align-items-center gap-1" id="navApiDocs">
+                    <i class="bi bi-code-slash"></i>
+                    <span>API Docs</span>
+                </a>
+                <a href="/health" target="_blank" rel="noopener noreferrer" class="btn btn-outline-nav btn-sm d-flex align-items-center gap-1" id="navHealth">
+                    <i class="bi bi-activity"></i>
+                    <span class="d-none d-sm-inline">Health</span>
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow-1 py-4 py-md-5">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Application Footer -->
+    <footer class="app-footer py-4 mt-auto">
+        <div class="container d-flex flex-column flex-md-row align-items-center justify-content-between gap-3">
+            <div class="d-flex align-items-center gap-2 text-muted small">
+                <span>&copy; 2026 DocuExtract.</span>
+                <span>•</span>
+                <span>Powered by FastAPI, Celery, Redis & Gemini OCR.</span>
+            </div>
+            <div class="d-flex align-items-center gap-3 small">
+                <a href="/docs" class="footer-link">Swagger UI</a>
+                <span class="text-muted">•</span>
+                <a href="/redoc" class="footer-link">ReDoc</a>
+                <span class="text-muted">•</span>
+                <a href="/openapi.json" class="footer-link">OpenAPI JSON</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap Bundle JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+    <!-- Application Script -->
+    <script src="{{ url_for('static', path='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
