@@ -1,6 +1,54 @@
 # Asynchronous Document Processing Microservice
 
-A production-ready asynchronous document processing backend microservice built with **FastAPI**, **Celery**, **Redis**, **PostgreSQL**, **SQLAlchemy 2.0**, and **Google Gemini Multimodal OCR API**, orchestrated with **Docker Compose**.
+A production-ready asynchronous document processing backend microservice built with **FastAPI**, **Celery**, **Redis**, **PostgreSQL**, **SQLAlchemy 2.0**, and **Google Gemini Multimodal OCR API (`gemini-3.6-flash`)**, orchestrated with **Docker Compose**. Includes a built-in modern, responsive web UI for interactive document upload, real-time asynchronous job status tracking, and structured text analysis.
+
+---
+
+## Interactive Web Interface & User Workflow
+
+The service provides an intuitive, high-contrast web dashboard directly accessible at `http://localhost:8000` (or `http://0.0.0.0:8000`). It gives users an end-to-end interactive experience to upload documents, monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
+
+### 1. Document Upload Interface
+
+Users can easily upload files via drag-and-drop or file browser:
+
+![Document Upload Interface](docs/images/document-upload-interface.png)
+
+- **Supported Formats**: `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.tiff`, `.bmp` (up to 10 MB).
+- **Client-Side Validation**: Checks file extensions and sizes instantly, presenting a file preview card with type badges and formatted file sizes.
+- **Single-Click Ingestion**: Clicking **"Process Document"** streams the file to `POST /documents`. The FastAPI backend computes a SHA-256 hash in 64 KB chunks, writes the file to storage, enqueues the job into Redis, and returns an immediate `202 Accepted` response with a unique `job_id`.
+
+---
+
+### 2. Real-Time Background Processing & Polling
+
+Once submitted, the UI seamlessly transitions into the active processing view:
+
+- **Live Multi-Step Pipeline**:
+  1. **Upload Document**: Transmitted and SHA-256 computed.
+  2. **Enqueue Background Task**: Claimed by a Celery worker from the Redis queue.
+  3. **Multimodal OCR Extraction**: Analyzed with Google Gemini 3.6 Flash for text, tables, and formatting.
+  4. **Store Results**: Results committed to PostgreSQL with duplicate detection.
+- **Live Elapsed Timer**: Visual stopwatch showing processing duration.
+- **Continuous Polling Without Timeouts**: The frontend polls `GET /jobs/{id}` every 1.5 seconds without artificial client timeouts. If the AI model encounters transient rate limits or high demand, the worker automatically applies exponential backoff and retries, while the UI dynamically informs the user.
+- **Cancel Button**: A "Cancel & Return to Upload" button lets users abort waiting and return to the upload screen at any time.
+
+---
+
+### 3. Extracted Document Output & Results
+
+When the worker finishes processing, the interface automatically renders the extracted output viewer:
+
+![Document Extraction Result](docs/images/document-extraction-result.png)
+
+- **Extraction Metadata & Status**: Displays the original filename, `Completed` status badge, AI model provider badge (`gemini-3.6-flash`), and total processing duration.
+- **Real-Time Text Metrics**: Live counters displaying character count, word count, and line count.
+- **Syntax & Structure Preservation**: Code container preserving original indentation, tabular columns, bullet lists, and paragraphs verbatim.
+- **In-Document Keyword Search**: Interactive search bar with instant `<mark>` highlighting across the extracted document.
+- **One-Click Actions**:
+  - **Copy Text**: Copies the raw text directly to clipboard with visual confirmation.
+  - **Download .txt**: Automatically creates and downloads a `<filename>_extracted.txt` file.
+  - **Process Another**: Resets the viewer and returns to the upload screen without refreshing the page.
 
 ---
 
@@ -72,31 +120,24 @@ The service is designed around an asynchronous, event-driven, decoupled worker a
 
 ---
 
-## Web Frontend Interface
+## Web Frontend Architecture
 
-The service includes a modern, responsive document-processing web UI served directly by FastAPI at `http://localhost:8000`.
+The web interface is built directly inside FastAPI without external Node.js build steps or heavy frameworks:
 
 ### Technology Stack
-- **FastAPI**: Serves the application and Jinja2 templates directly without requiring a separate Node.js server.
-- **Jinja2**: HTML templating engine (`app/templates/base.html`, `app/templates/index.html`).
-- **Bootstrap 5.3 & Bootstrap Icons**: Responsive grid, layout utilities, and consistent iconography via CDN.
-- **Vanilla JavaScript**: File validation, drag-and-drop handling, `fetch()` uploads, and async polling (`app/static/js/app.js`).
-- **Vanilla CSS**: Custom styling adhering to the project's exact 4-color palette (`app/static/css/style.css`).
+- **FastAPI**: Direct HTML streaming and Jinja2 templating.
+- **Jinja2**: Modular HTML templates (`app/templates/base.html`, `app/templates/index.html`).
+- **Bootstrap 5.3 & Bootstrap Icons**: Responsive grid system and modern icon set via CDN.
+- **Vanilla JavaScript**: Zero-dependency client-side logic, drag-and-drop, asynchronous polling, and clipboard handling (`app/static/js/app.js`).
+- **Vanilla CSS**: Bespoke styling adhering to the project's strict 4-color design tokens (`app/static/css/style.css`).
 
-### Design & Color Palette
-The interface is styled around the project's curated palette:
-- `#EDEBE4` (Warm Sand) — Page background and subtle card surfaces
-- `#111111` (Obsidian Black) — Primary typography, dark headers, and high-contrast containers
-- `#1D4ED8` (Royal Cobalt Blue) — Primary action buttons, brand accents, and active states
-- `#F43F5E` (Vibrant Rose Coral) — Error alerts, file removal actions, and secondary badges
-
-### User Workflow
-1. **Open `http://localhost:8000`**: Browsers receive the responsive document-processing dashboard.
-2. **Select or Drag & Drop Document**: Supports PDF, PNG, JPG, JPEG, WEBP, TIFF, BMP up to 10 MB with client-side validation.
-3. **Click "Process Document"**: The file is streamed to `POST /documents`. FastAPI responds immediately with `202 Accepted` and a `job_id`.
-4. **Live Polling Animation**: The UI displays a live step-by-step processing animation while querying `GET /jobs/{job_id}` every 1.5 seconds.
-5. **View Extracted Results**: Once completed, the extracted text is fetched from `GET /jobs/{job_id}/result` and rendered with preserved line breaks and tables.
-6. **Action Toolbar**: One-click "Copy Text" (with clipboard feedback), "Download .txt", and "Process Another Document" (resets state without page reload).
+### Design & Color Palette Tokens
+| Color Code | Name | Role in Interface |
+|:---|:---|:---|
+| **`#EDEBE4`** | Warm Sand / Canvas | Page background, card surface tints, and badge backgrounds |
+| **`#111111`** | Obsidian Black | High-contrast typography, dark headers, and code viewer |
+| **`#1D4ED8`** | Royal Cobalt Blue | Primary action buttons ("Process Document"), brand icons, active states |
+| **`#F43F5E`** | Vibrant Rose Coral | Error alerts, file removal buttons, and secondary badges |
 
 ---
 
@@ -113,7 +154,7 @@ The interface is styled around the project's curated palette:
 | **Google GenAI** | 0.1+ | Multimodal OCR and document text extraction |
 | **Alembic** | 1.13+ | Automated database migrations |
 | **Docker Compose**| v2+ | Multi-container service orchestration |
-| **Pytest** | 9.x | Comprehensive automated test suite (32 unit/integration tests) |
+| **Pytest** | 9.x | Comprehensive automated test suite (35 unit/integration tests) |
 | **Ruff** | 0.3+ | Fast code linting and style formatting |
 
 ---
