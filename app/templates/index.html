@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}DocuExtract — Asynchronous Document Text Extraction & OCR{% endblock %}
+
+{% block content %}
+<div class="container py-2">
+    <!-- Hero Section -->
+    <div class="hero-section text-center mx-auto mb-4 mb-md-5">
+        <div class="d-inline-flex align-items-center gap-2 px-3 py-1 mb-3 hero-badge">
+            <span class="pulse-indicator"></span>
+            <span>Asynchronous Background OCR Pipeline</span>
+        </div>
+        <h1 class="hero-title fw-bold mb-3">Extract Text From Documents With Precision</h1>
+        <p class="hero-subtitle text-muted mx-auto mb-4">
+            Upload PDFs, scanned papers, or image documents. Our background Celery workers and Google Gemini multimodal model extract structured text, key-value data, and tables with verbatim fidelity.
+        </p>
+        <div class="d-flex flex-wrap justify-content-center gap-2 feature-pills">
+            <span class="pill-item"><i class="bi bi-lightning-charge-fill text-primary"></i> Async Background Queue</span>
+            <span class="pill-item"><i class="bi bi-shield-check text-primary"></i> SHA-256 Deduplication</span>
+            <span class="pill-item"><i class="bi bi-table text-primary"></i> Tabular & Multi-Page OCR</span>
+            <span class="pill-item"><i class="bi bi-cpu text-primary"></i> Google Gemini Powered</span>
+        </div>
+    </div>
+
+    <!-- Alert / Message Banner -->
+    <div id="errorAlert" class="alert alert-custom alert-dismissible fade show d-none mx-auto mb-4" role="alert">
+        <div class="d-flex align-items-start gap-2">
+            <i class="bi bi-exclamation-octagon-fill fs-5 alert-icon flex-shrink-0"></i>
+            <div>
+                <strong id="errorAlertTitle" class="d-block mb-1">Error</strong>
+                <span id="errorAlertMessage">Something went wrong. Please try again.</span>
+            </div>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseAlert" aria-label="Close"></button>
+    </div>
+
+    <!-- Main Workspace Card -->
+    <div class="workspace-card mx-auto">
+        <!-- 1. Upload Section -->
+        <section id="uploadSection" class="workspace-panel">
+            <!-- Drag and Drop Dropzone -->
+            <div id="dropZone" class="dropzone-area" tabindex="0" role="button" aria-label="Upload document by clicking or dragging and dropping">
+                <input type="file" id="fileInput" class="d-none" accept=".pdf,.png,.jpg,.jpeg,.webp,.tiff,.bmp" aria-hidden="true">
+
+                <div class="dropzone-content text-center py-4 py-md-5 px-3">
+                    <div class="upload-icon-circle mx-auto mb-3">
+                        <i class="bi bi-cloud-arrow-up-fill upload-icon"></i>
+                    </div>
+                    <h3 class="dropzone-title fw-bold mb-2">Drop your document here</h3>
+                    <p class="dropzone-text text-muted mb-3">or <span class="browse-link text-primary fw-semibold">click to browse</span> from your device</p>
+
+                    <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3 format-tags">
+                        <span class="badge format-badge">PDF</span>
+                        <span class="badge format-badge">PNG</span>
+                        <span class="badge format-badge">JPG / JPEG</span>
+                        <span class="badge format-badge">WEBP</span>
+                        <span class="badge format-badge">TIFF / BMP</span>
+                        <span class="badge limit-badge">Max {{ max_file_size_mb|default(10) }} MB</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selected File Card (Hidden until file chosen) -->
+            <div id="selectedFileCard" class="selected-file-card d-none mt-3 p-3 p-md-4">
+                <div class="d-flex align-items-center justify-content-between gap-3">
+                    <div class="d-flex align-items-center gap-3 overflow-hidden">
+                        <div class="file-type-icon-box flex-shrink-0" id="fileTypeIconBox">
+                            <i class="bi bi-file-earmark-pdf-fill fs-3" id="fileTypeIcon"></i>
+                        </div>
+                        <div class="file-details-text overflow-hidden">
+                            <div class="fw-bold text-truncate" id="selectedFileName">filename.pdf</div>
+                            <div class="text-muted small d-flex align-items-center gap-2">
+                                <span id="selectedFileSize">0 KB</span>
+                                <span>•</span>
+                                <span class="badge file-badge" id="selectedFileType">PDF</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-icon-remove" id="btnRemoveFile" title="Remove file" aria-label="Remove selected file">
+                        <i class="bi bi-trash3-fill"></i>
+                    </button>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top border-light-subtle">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="btnCancelSelection">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-process d-flex align-items-center gap-2" id="btnProcess">
+                        <span>Process Document</span>
+                        <i class="bi bi-arrow-right-short fs-5"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Processing State Section (Hidden initially) -->
+        <section id="processingSection" class="workspace-panel d-none text-center py-5 px-3">
+            <div class="processing-loader-wrapper mx-auto mb-4">
+                <div class="spinner-pulse"></div>
+                <div class="spinner-ring"></div>
+                <i class="bi bi-cpu-fill processing-icon"></i>
+            </div>
+
+            <h3 class="fw-bold mb-2" id="processingHeader">Processing Your Document</h3>
+            <p class="text-muted mb-4" id="processingSubheader">
+                Extracting text and structure via asynchronous background worker...
+            </p>
+
+            <!-- Status Step Indicators -->
+            <div class="steps-progress mx-auto mb-4 text-start">
+                <div class="step-item completed" id="stepUpload">
+                    <span class="step-icon"><i class="bi bi-check-lg"></i></span>
+                    <div class="step-content">
+                        <div class="step-title fw-semibold">Upload Document</div>
+                        <div class="step-desc text-muted small">File transmitted and SHA-256 computed</div>
+                    </div>
+                </div>
+                <div class="step-item active" id="stepQueue">
+                    <span class="step-icon" id="stepQueueIcon"><i class="bi bi-hourglass-split"></i></span>
+                    <div class="step-content">
+                        <div class="step-title fw-semibold">Enqueue Background Task</div>
+                        <div class="step-desc text-muted small" id="stepQueueDesc">Worker claimed job in Redis queue</div>
+                    </div>
+                </div>
+                <div class="step-item" id="stepExtract">
+                    <span class="step-icon" id="stepExtractIcon"><i class="bi bi-search"></i></span>
+                    <div class="step-content">
+                        <div class="step-title fw-semibold">Multimodal OCR Extraction</div>
+                        <div class="step-desc text-muted small" id="stepExtractDesc">Analyzing text, tables, and structure</div>
+                    </div>
+                </div>
+                <div class="step-item" id="stepPersist">
+                    <span class="step-icon" id="stepPersistIcon"><i class="bi bi-database-check"></i></span>
+                    <div class="step-content">
+                        <div class="step-title fw-semibold">Store Results</div>
+                        <div class="step-desc text-muted small">Saving extracted result into database</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="processing-meta d-inline-flex align-items-center gap-3 px-3 py-2 rounded-pill">
+                <span class="badge status-tag-pill" id="processingStatusTag">processing</span>
+                <span class="text-muted small">Job ID: <code id="processingJobId">job_...</code></span>
+                <span class="text-muted small">•</span>
+                <span class="text-muted small">Elapsed: <strong id="processingElapsedTime">0s</strong></span>
+            </div>
+        </section>
+
+        <!-- 3. Result Section (Hidden initially) -->
+        <section id="resultSection" class="workspace-panel d-none">
+            <!-- Result Header Banner -->
+            <div class="result-header p-3 p-md-4 border-bottom">
+                <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge status-success-badge">
+                                <i class="bi bi-check-circle-fill me-1"></i> Completed
+                            </span>
+                            <span class="badge provider-badge" id="resultProviderBadge">gemini-2.5-flash</span>
+                        </div>
+                        <h4 class="fw-bold mb-1 text-truncate" id="resultFileName">document.pdf</h4>
+                        <div class="text-muted small d-flex flex-wrap align-items-center gap-2">
+                            <span>Job ID: <code id="resultJobId">job_...</code></span>
+                            <span>•</span>
+                            <span>Processed in <strong id="resultDuration">0.0s</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- Toolbar Actions -->
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-dark btn-sm d-flex align-items-center gap-1" id="btnCopyText" title="Copy to clipboard">
+                            <i class="bi bi-clipboard" id="copyIcon"></i>
+                            <span id="copyTextLabel">Copy Text</span>
+                        </button>
+                        <button type="button" class="btn btn-outline-dark btn-sm d-flex align-items-center gap-1" id="btnDownloadText" title="Download as .txt">
+                            <i class="bi bi-download"></i>
+                            <span>Download .txt</span>
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-1" id="btnNewDocument">
+                            <i class="bi bi-plus-lg"></i>
+                            <span>Process Another</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Result Stats Bar -->
+            <div class="result-stats px-3 px-md-4 py-2 border-bottom bg-subtle-tint d-flex flex-wrap align-items-center gap-3 small">
+                <div>Characters: <strong id="statCharCount">0</strong></div>
+                <span class="text-muted">•</span>
+                <div>Words: <strong id="statWordCount">0</strong></div>
+                <span class="text-muted">•</span>
+                <div>Lines: <strong id="statLineCount">0</strong></div>
+                <div class="ms-auto search-wrapper">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
+                        <input type="text" id="resultSearchInput" class="form-control border-start-0" placeholder="Find in text..." aria-label="Find in extracted text">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Extracted Text Viewer -->
+            <div class="result-body p-3 p-md-4">
+                <div class="extracted-text-wrapper">
+                    <pre class="extracted-text-content" id="extractedTextContent">Extracted document content will appear here...</pre>
+                </div>
+            </div>
+
+            <!-- Result Footer Bar -->
+            <div class="result-footer p-3 p-md-4 border-top d-flex justify-content-between align-items-center">
+                <span class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i> Original document structure, spacing, and tables preserved verbatim.
+                </span>
+                <button type="button" class="btn btn-link btn-sm text-decoration-none" id="btnScrollToTop">
+                    <i class="bi bi-arrow-up"></i> Top
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <!-- How It Works Information Cards -->
+    <div class="how-it-works mt-5 pt-3">
+        <h5 class="text-center fw-bold text-muted text-uppercase tracking-wider small mb-4">Pipeline Architecture</h5>
+        <div class="row g-3 g-md-4">
+            <div class="col-md-4">
+                <div class="info-card h-100 p-3 p-md-4">
+                    <div class="info-icon-box mb-3">
+                        <i class="bi bi-upload text-primary fs-4"></i>
+                    </div>
+                    <h6 class="fw-bold mb-2">1. Fast Ingestion Buffer</h6>
+                    <p class="text-muted small mb-0">
+                        FastAPI validates MIME types, computes a SHA-256 stream hash, buffers the document to storage, and returns an immediate <code>202 Accepted</code> response.
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="info-card h-100 p-3 p-md-4">
+                    <div class="info-icon-box mb-3">
+                        <i class="bi bi-layers-half text-primary fs-4"></i>
+                    </div>
+                    <h6 class="fw-bold mb-2">2. Asynchronous Queue & Dedup</h6>
+                    <p class="text-muted small mb-0">
+                        Celery workers consume tasks from Redis. If the document SHA-256 matches an existing completed file, cached results are returned in &lt;5ms.
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="info-card h-100 p-3 p-md-4">
+                    <div class="info-icon-box mb-3">
+                        <i class="bi bi-stars text-primary fs-4"></i>
+                    </div>
+                    <h6 class="fw-bold mb-2">3. Gemini Multimodal OCR</h6>
+                    <p class="text-muted small mb-0">
+                        The worker executes OCR with Google Gemini, preserving structural markdown, headers, and tabular layouts before writing results to PostgreSQL.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
