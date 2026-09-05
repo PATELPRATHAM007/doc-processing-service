@@ -4,9 +4,16 @@ A production-ready asynchronous document processing backend microservice built w
 
 ---
 
+> 🚀 **Live Production Deployment**: [http://156.67.104.24:9000/](http://156.67.104.24:9000/)
+> 📖 **Interactive Swagger API Docs**: [http://156.67.104.24:9000/docs](http://156.67.104.24:9000/docs)
+> 🔍 **ReDoc Documentation**: [http://156.67.104.24:9000/redoc](http://156.67.104.24:9000/redoc)
+> 💓 **Health Check Endpoint**: [http://156.67.104.24:9000/api/v1/health](http://156.67.104.24:9000/api/v1/health)
+
+---
+
 ## Interactive Web Interface & User Workflow
 
-The service provides an intuitive, high-contrast web dashboard directly accessible at `http://localhost:9000` (or `http://0.0.0.0:9000`). It gives users an end-to-end interactive experience to upload documents, monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
+The service provides an intuitive, high-contrast web dashboard live at **[http://156.67.104.24:9000/](http://156.67.104.24:9000/)** (or locally at `http://localhost:9000` / `http://0.0.0.0:9000`). It gives users an end-to-end interactive experience to upload documents, monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
 
 ### 1. Document Upload Interface
 
@@ -490,8 +497,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 9000
 ## REST API Endpoints & Example cURL Commands
 
 Interactive documentation is available at:
-- **Swagger UI**: [http://localhost:9000/docs](http://localhost:9000/docs)
-- **ReDoc**: [http://localhost:9000/redoc](http://localhost:9000/redoc)
+- **Live Swagger UI**: [http://156.67.104.24:9000/docs](http://156.67.104.24:9000/docs) (Local: [http://localhost:9000/docs](http://localhost:9000/docs))
+- **Live ReDoc**: [http://156.67.104.24:9000/redoc](http://156.67.104.24:9000/redoc) (Local: [http://localhost:9000/redoc](http://localhost:9000/redoc))
 
 ### 1. Upload a Document for Processing
 
