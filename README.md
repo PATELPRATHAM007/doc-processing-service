@@ -40,7 +40,7 @@ The service is designed around an asynchronous, event-driven, decoupled worker a
                                          v
                      +----------------------------------------------+
                      |           Google Gemini API                  |
-                     |   (gemini-2.5-flash / multimodal model)      |
+                     |   (gemini-3.6-flash / multimodal model)      |
                      +----------------------------------------------+
 ```
 
@@ -131,7 +131,7 @@ cp .env.example .env
 Edit `.env` and set your Google Gemini API key:
 ```bash
 GEMINI_API_KEY="your-gemini-api-key-here"
-GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL="gemini-3.6-flash"
 ```
 
 ### 2. Launch All Services
@@ -206,7 +206,7 @@ CELERY_RESULT_BACKEND="redis://localhost:6379/0"
 
 # Gemini OCR
 GEMINI_API_KEY="your-gemini-api-key"
-GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL="gemini-3.6-flash"
 
 # Storage
 UPLOAD_DIR="uploads"
@@ -328,7 +328,7 @@ curl -X GET "http://localhost:8000/jobs/job_9f8e7d6c5b4a/result" \
     "job_id": "job_9f8e7d6c5b4a",
     "document_id": "doc_a1b2c3d4e5f6",
     "status": "completed",
-    "provider": "gemini-2.5-flash",
+    "provider": "gemini-3.6-flash",
     "char_count": 842,
     "extracted_text": "INVOICE #INV-2026-001\nDate: September 5, 2026\nBill To: Acme Corporation\nTotal: $1,250.00...",
     "created_at": "2026-09-05T10:15:03.789123Z"
