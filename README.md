@@ -72,6 +72,34 @@ The service is designed around an asynchronous, event-driven, decoupled worker a
 
 ---
 
+## Web Frontend Interface
+
+The service includes a modern, responsive document-processing web UI served directly by FastAPI at `http://localhost:8000`.
+
+### Technology Stack
+- **FastAPI**: Serves the application and Jinja2 templates directly without requiring a separate Node.js server.
+- **Jinja2**: HTML templating engine (`app/templates/base.html`, `app/templates/index.html`).
+- **Bootstrap 5.3 & Bootstrap Icons**: Responsive grid, layout utilities, and consistent iconography via CDN.
+- **Vanilla JavaScript**: File validation, drag-and-drop handling, `fetch()` uploads, and async polling (`app/static/js/app.js`).
+- **Vanilla CSS**: Custom styling adhering to the project's exact 4-color palette (`app/static/css/style.css`).
+
+### Design & Color Palette
+The interface is styled around the project's curated palette:
+- `#EDEBE4` (Warm Sand) — Page background and subtle card surfaces
+- `#111111` (Obsidian Black) — Primary typography, dark headers, and high-contrast containers
+- `#1D4ED8` (Royal Cobalt Blue) — Primary action buttons, brand accents, and active states
+- `#F43F5E` (Vibrant Rose Coral) — Error alerts, file removal actions, and secondary badges
+
+### User Workflow
+1. **Open `http://localhost:8000`**: Browsers receive the responsive document-processing dashboard.
+2. **Select or Drag & Drop Document**: Supports PDF, PNG, JPG, JPEG, WEBP, TIFF, BMP up to 10 MB with client-side validation.
+3. **Click "Process Document"**: The file is streamed to `POST /documents`. FastAPI responds immediately with `202 Accepted` and a `job_id`.
+4. **Live Polling Animation**: The UI displays a live step-by-step processing animation while querying `GET /jobs/{job_id}` every 1.5 seconds.
+5. **View Extracted Results**: Once completed, the extracted text is fetched from `GET /jobs/{job_id}/result` and rendered with preserved line breaks and tables.
+6. **Action Toolbar**: One-click "Copy Text" (with clipboard feedback), "Download .txt", and "Process Another Document" (resets state without page reload).
+
+---
+
 ## Tech Stack
 
 | Technology | Version | Purpose |
