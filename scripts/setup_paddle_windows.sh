@@ -199,81 +199,87 @@ find "${VENV_DIR}" -type d -name "~*" -exec rm -rf {} + 2>/dev/null || true
 PADDLE_INSTALLED=0
 if [[ "${DETECTED_DEVICE}" == "gpu" && "${HAS_GPU}" -eq 1 ]]; then
     echo -e "  Attempting to install ${BOLD}paddlepaddle-gpu${NC} for CUDA on Windows..."
-    # Uninstall cpu paddlepaddle if previously present
-    "${VENV_PYTHON}" -m pip uninstall -y paddlepaddle 2>/dev/null || true
+
+    # Purge any conflicting or split paddle installations
+    "${VENV_PYTHON}" -m pip uninstall -y paddlepaddle paddlepaddle-gpu 2>/dev/null || true
+
+    SITE_PACKAGES=$("${VENV_PYTHON}" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || echo "${VENV_DIR}/Lib/site-packages")
+    PADDLE_DIR="${SITE_PACKAGES}/paddle"
+    if [ -d "${PADDLE_DIR}" ] && [ ! -f "${PADDLE_DIR}/__init__.py" ]; then
+        echo -e "  ${YELLOW}Removing zombie broken paddle directory: ${PADDLE_DIR}...${NC}"
+        rm -rf "${PADDLE_DIR}" 2>/dev/null || true
+    fi
+    rm -rf "${SITE_PACKAGES}"/*paddlepaddle*.dist-info 2>/dev/null || true
 
     PY_TAG=$("${VENV_PYTHON}" -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
 
-    # Strategy 1: Official Paddle CUDA indexes with trusted hosts
-    CUDA_INDEXES=(
-        "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
-        "https://www.paddlepaddle.org.cn/packages/stable/cu118/"
+    # Direct pre-compiled wheel installation from local cache or CDN
+    echo -e "\n  Setting up pre-compiled CUDA 12 wheel for RTX 2050..."
+    DIRECT_WHEELS=(
+        "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
     )
 
-    for idx in "${CUDA_INDEXES[@]}"; do
-        echo "  Trying CUDA index: ${idx}..."
-        if "${VENV_PYTHON}" -m pip install paddlepaddle-gpu -i "${idx}" --trusted-host www.paddlepaddle.org.cn --trusted-host paddle-whl.cdn.bcebos.com; then
-            PADDLE_INSTALLED=1
-            echo -e "  ${GREEN}paddlepaddle-gpu installed successfully via ${idx}!${NC}"
-            break
+    for wheel_url in "${DIRECT_WHEELS[@]}"; do
+        wheel_name="$(basename "${wheel_url}")"
+        local_wheel="${PROJECT_ROOT}/${wheel_name}"
+        download_success=0
+
+        if [ -f "${local_wheel}" ]; then
+            file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
+            if [ "${file_size}" -ge 500000000 ]; then
+                echo -e "  ${GREEN}Found existing cached wheel (${wheel_name}, $(( file_size / 1048576 )) MB). Skipping download!${NC}"
+                download_success=1
+            fi
+        fi
+
+        if [[ ${download_success} -eq 0 ]]; then
+            echo -e "  Target: ${wheel_name} (~580 MB)..."
+            attempt=0
+            max_attempts=15
+
+            while [[ ${attempt} -lt ${max_attempts} ]]; do
+                attempt=$((attempt + 1))
+                curl -# -L -C - --retry 3 --retry-delay 2 -o "${local_wheel}" "${wheel_url}" || true
+
+                if [ -f "${local_wheel}" ]; then
+                    file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
+                    if [ "${file_size}" -ge 500000000 ]; then
+                        download_success=1
+                        break
+                    fi
+                fi
+
+                if [ ${attempt} -lt ${max_attempts} ]; then
+                    echo -e "  ${YELLOW}[Notice] Connection interrupted. Auto-resuming from where it left off (Attempt ${attempt} of ${max_attempts})...${NC}"
+                    sleep 2
+                fi
+            done
+        fi
+
+        if [[ ${download_success} -eq 1 ]]; then
+            echo -e "  Installing CUDA wheel into venv..."
+            "${VENV_PYTHON}" -m pip install --no-cache-dir --force-reinstall "${local_wheel}" || true
+
+            PADDLE_INIT="${SITE_PACKAGES}/paddle/__init__.py"
+            if [ ! -f "${PADDLE_INIT}" ]; then
+                echo -e "  ${YELLOW}Extracting paddle package files from wheel archive directly into site-packages...${NC}"
+                "${VENV_PYTHON}" -c "
+import zipfile
+with zipfile.ZipFile(r'${local_wheel}', 'r') as z:
+    for m in z.namelist():
+        if m.startswith('paddle/') or m.startswith('paddle\\\\'):
+            z.extract(m, r'${SITE_PACKAGES}')
+print('Direct package extraction complete!')
+"
+            fi
+
+            if [ -f "${PADDLE_INIT}" ]; then
+                PADDLE_INSTALLED=1
+                echo -e "  ${GREEN}paddlepaddle-gpu verified successfully on disk with CUDA acceleration!${NC}"
+                break
+            fi
         fi
     done
-
-    # Strategy 2: Direct pre-compiled wheel download from CDN with auto-resume progress bar
-    if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
-        echo -e "\n  Downloading pre-compiled CUDA 12 wheel for RTX 2050..."
-        DIRECT_WHEELS=(
-            "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
-        )
-
-        for wheel_url in "${DIRECT_WHEELS[@]}"; do
-            wheel_name="$(basename "${wheel_url}")"
-            local_wheel="${PROJECT_ROOT}/${wheel_name}"
-            download_success=0
-
-            if [ -f "${local_wheel}" ]; then
-                file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
-                if [ "${file_size}" -ge 500000000 ]; then
-                    echo -e "  ${GREEN}Found existing cached wheel (${wheel_name}, $(( file_size / 1048576 )) MB). Skipping download!${NC}"
-                    download_success=1
-                fi
-            fi
-
-            if [[ ${download_success} -eq 0 ]]; then
-                echo -e "  Target: ${wheel_name} (~580 MB)..."
-                attempt=0
-                max_attempts=15
-
-                while [[ ${attempt} -lt ${max_attempts} ]]; do
-                    attempt=$((attempt + 1))
-                    curl -# -L -C - --retry 3 --retry-delay 2 -o "${local_wheel}" "${wheel_url}" || true
-
-                    if [ -f "${local_wheel}" ]; then
-                        file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
-                        if [ "${file_size}" -ge 500000000 ]; then
-                            download_success=1
-                            break
-                        fi
-                    fi
-
-                    if [ ${attempt} -lt ${max_attempts} ]; then
-                        echo -e "  ${YELLOW}[Notice] Connection interrupted. Auto-resuming from where it left off (Attempt ${attempt} of ${max_attempts})...${NC}"
-                        sleep 2
-                    fi
-                done
-            fi
-
-            if [[ ${download_success} -eq 1 ]]; then
-                echo -e "  Installing CUDA wheel into venv..."
-                "${VENV_PYTHON}" -m pip uninstall -y paddlepaddle 2>/dev/null || true
-                if "${VENV_PYTHON}" -m pip install --force-reinstall "${local_wheel}"; then
-                    PADDLE_INSTALLED=1
-                    echo -e "  ${GREEN}paddlepaddle-gpu installed successfully with CUDA acceleration!${NC}"
-                    break
-                fi
-            fi
-        done
-    fi
 
     if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
         echo -e "${YELLOW}Warning: paddlepaddle-gpu install failed. Falling back to CPU mode...${NC}"
