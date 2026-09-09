@@ -60,3 +60,41 @@ class DocumentProcessor(ABC):
             PermanentProcessingError: On non-recoverable errors (terminal).
         """
         raise NotImplementedError
+
+
+_default_processor: DocumentProcessor | None = None
+
+
+def get_document_processor(provider: str | None = None) -> DocumentProcessor:
+    """Return the configured DocumentProcessor instance for the specified or default provider.
+
+    Args:
+        provider: 'gemini', 'paddleocr_vl', or None (falls back to settings.OCR_PROVIDER).
+    """
+    global _default_processor
+    if _default_processor is not None:
+        return _default_processor
+
+    from app.core.config import settings
+
+    target_provider = (provider or settings.OCR_PROVIDER).lower().strip()
+
+    if target_provider in (
+        "paddleocr",
+        "paddleocr_vl",
+        "paddleocr-vl",
+        "paddleocr-vl-1.6",
+    ):
+        from app.services.paddleocr_vl_service import PaddleOCRVLDocumentProcessor
+
+        return PaddleOCRVLDocumentProcessor()
+
+    from app.services.gemini_service import GeminiDocumentProcessor
+
+    return GeminiDocumentProcessor()
+
+
+def set_document_processor(processor: DocumentProcessor | None) -> None:
+    """Override the document processor (useful for dependency injection in unit tests)."""
+    global _default_processor
+    _default_processor = processor

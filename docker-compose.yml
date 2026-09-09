@@ -52,6 +52,12 @@ services:
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      OCR_PROVIDER: ${OCR_PROVIDER:-gemini}
+      PADDLEOCR_VL_PIPELINE_VERSION: ${PADDLEOCR_VL_PIPELINE_VERSION:-v1.6}
+      PADDLEOCR_VL_MODEL_NAME: ${PADDLEOCR_VL_MODEL_NAME:-PaddlePaddle/PaddleOCR-VL-1.6}
+      PADDLEOCR_VL_BACKEND: ${PADDLEOCR_VL_BACKEND:-vllm-server}
+      PADDLEOCR_VL_SERVER_URL: ${PADDLEOCR_VL_SERVER_URL:-http://localhost:8080/v1}
+      PADDLEOCR_VL_DEVICE: ${PADDLEOCR_VL_DEVICE:-cpu}
     volumes:
       - .:/app
       - uploads_data:/app/uploads
@@ -79,6 +85,12 @@ services:
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      OCR_PROVIDER: ${OCR_PROVIDER:-gemini}
+      PADDLEOCR_VL_PIPELINE_VERSION: ${PADDLEOCR_VL_PIPELINE_VERSION:-v1.6}
+      PADDLEOCR_VL_MODEL_NAME: ${PADDLEOCR_VL_MODEL_NAME:-PaddlePaddle/PaddleOCR-VL-1.6}
+      PADDLEOCR_VL_BACKEND: ${PADDLEOCR_VL_BACKEND:-vllm-server}
+      PADDLEOCR_VL_SERVER_URL: ${PADDLEOCR_VL_SERVER_URL:-http://localhost:8080/v1}
+      PADDLEOCR_VL_DEVICE: ${PADDLEOCR_VL_DEVICE:-cpu}
     volumes:
       - .:/app
       - uploads_data:/app/uploads
