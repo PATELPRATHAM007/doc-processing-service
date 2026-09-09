@@ -281,14 +281,18 @@ def test_get_document_processor_factory():
 def test_upload_document_with_paddleocr_provider():
     """Verify API accepts provider='paddleocr_vl' and stores it on the Job record."""
     file_bytes = b"%PDF-1.4 sample pdf content for provider test"
-    response = client.post(
-        "/api/v1/documents",
-        files={"file": ("sample.pdf", io.BytesIO(file_bytes), "application/pdf")},
-        data={"provider": "paddleocr_vl"},
-    )
-    assert response.status_code == 202
-    data = response.json()["data"]
-    assert data["provider"] == "paddleocr_vl"
+    with patch(
+        "app.modules.documents.router.process_document_task.delay"
+    ) as mock_delay:
+        response = client.post(
+            "/api/v1/documents",
+            files={"file": ("sample.pdf", io.BytesIO(file_bytes), "application/pdf")},
+            data={"provider": "paddleocr_vl"},
+        )
+        assert response.status_code == 202
+        data = response.json()["data"]
+        assert data["provider"] == "paddleocr_vl"
+        mock_delay.assert_called_once()
 
     # Verify Job record in database has provider set
     db = DatabaseService.get_session()
