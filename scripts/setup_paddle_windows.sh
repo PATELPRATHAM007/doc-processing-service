@@ -193,18 +193,24 @@ echo "  Upgrading pip, setuptools, and wheel..."
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}[4/6] Installing PaddlePaddle & PaddleOCR Dependencies...${NC}"
 
+# Clean up any leftover temporary folders from prior interrupted pip installs (e.g. ~ip)
+find "${VENV_DIR}" -type d -name "~*" -exec rm -rf {} + 2>/dev/null || true
+
 PADDLE_INSTALLED=0
 if [[ "${DETECTED_DEVICE}" == "gpu" && "${HAS_GPU}" -eq 1 ]]; then
     echo -e "  Attempting to install ${BOLD}paddlepaddle-gpu${NC} for CUDA on Windows..."
-    CUDA_INDEXES=(
-        "https://www.paddlepaddle.org.cn/packages/stable/cu118"
-        "https://www.paddlepaddle.org.cn/packages/stable/cu120"
-        "https://www.paddlepaddle.org.cn/packages/stable/cu126"
+    # Uninstall cpu paddlepaddle if previously present
+    "${VENV_PYTHON}" -m pip uninstall -y paddlepaddle 2>/dev/null || true
+
+    CUDA_REPOS=(
+        "https://www.paddlepaddle.org.cn/packages/stable/cu126/paddlepaddle-gpu/"
+        "https://www.paddlepaddle.org.cn/packages/stable/cu118/paddlepaddle-gpu/"
+        "https://www.paddlepaddle.org.cn/packages/stable/cu120/paddlepaddle-gpu/"
     )
 
-    for idx in "${CUDA_INDEXES[@]}"; do
-        echo "  Trying CUDA index: ${idx}..."
-        if "${VENV_PYTHON}" -m pip install paddlepaddle-gpu --extra-index-url "${idx}"; then
+    for repo in "${CUDA_REPOS[@]}"; do
+        echo "  Trying CUDA wheel repository: ${repo}..."
+        if "${VENV_PYTHON}" -m pip install paddlepaddle-gpu -f "${repo}"; then
             PADDLE_INSTALLED=1
             echo -e "  ${GREEN}paddlepaddle-gpu installed successfully!${NC}"
             break

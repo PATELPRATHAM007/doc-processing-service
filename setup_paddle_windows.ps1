@@ -126,6 +126,12 @@ function Invoke-Pip {
     return $code
 }
 
+# # Clean up any leftover temporary folders from prior interrupted pip installs (e.g. ~ip)
+$sitePackages = Join-Path $VenvDir "Lib\site-packages"
+if (Test-Path $sitePackages) {
+    Get-ChildItem -Path $sitePackages -Filter "~*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # Upgrade pip, setuptools, wheel using python.exe -m pip (prevents Windows file lock on pip.exe)
 Write-Host "  Upgrading pip, setuptools, and wheel..."
 Invoke-Pip -Arguments @("install", "--upgrade", "pip", "setuptools", "wheel") -IgnoreError | Out-Null
@@ -138,27 +144,31 @@ Write-Host "`n[4/6] Installing PaddlePaddle & PaddleOCR Dependencies..." -Foregr
 $paddleInstalled = $false
 
 if ($HasGpu -and ($Device -eq "gpu")) {
-    Write-Host "  NVIDIA GPU detected. Attempting to install paddlepaddle-gpu for CUDA..." -ForegroundColor Green
+    Write-Host "  NVIDIA GPU detected ($gpuName). Attempting to install paddlepaddle-gpu for CUDA..." -ForegroundColor Green
 
-    # Try official PaddlePaddle CUDA wheel repositories for Windows
-    $cudaIndexes = @(
-        "https://www.paddlepaddle.org.cn/packages/stable/cu118",
-        "https://www.paddlepaddle.org.cn/packages/stable/cu120",
-        "https://www.paddlepaddle.org.cn/packages/stable/cu126"
+    # Remove CPU paddlepaddle first if previously installed to avoid distribution collisions
+    Invoke-Pip -Arguments @("uninstall", "-y", "paddlepaddle") -IgnoreError | Out-Null
+
+    # Official PaddlePaddle CUDA wheel repositories (HTML direct links queried with -f)
+    $cudaRepos = @(
+        "https://www.paddlepaddle.org.cn/packages/stable/cu126/paddlepaddle-gpu/",
+        "https://www.paddlepaddle.org.cn/packages/stable/cu118/paddlepaddle-gpu/",
+        "https://www.paddlepaddle.org.cn/packages/stable/cu120/paddlepaddle-gpu/"
     )
 
-    foreach ($indexUrl in $cudaIndexes) {
-        Write-Host "  Trying CUDA index ($indexUrl)..." -ForegroundColor Cyan
-        $res = Invoke-Pip -Arguments @("install", "paddlepaddle-gpu", "--extra-index-url", $indexUrl) -IgnoreError
+    foreach ($repoUrl in $cudaRepos) {
+        Write-Host "  Trying CUDA wheel repository: $repoUrl" -ForegroundColor Cyan
+        $res = Invoke-Pip -Arguments @("install", "paddlepaddle-gpu", "-f", $repoUrl) -IgnoreError
         if ($res -eq 0) {
             $paddleInstalled = $true
+            $Device = "gpu"
             Write-Host "  paddlepaddle-gpu installed successfully!" -ForegroundColor Green
             break
         }
     }
 
     if (-not $paddleInstalled) {
-        Write-Host "  Direct paddlepaddle-gpu install could not find matching wheels. Falling back to CPU mode..." -ForegroundColor Yellow
+        Write-Host "  Could not install GPU wheels from CUDA repositories. Falling back to CPU mode..." -ForegroundColor Yellow
     }
 }
 
