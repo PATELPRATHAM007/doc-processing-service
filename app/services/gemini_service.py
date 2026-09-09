@@ -15,6 +15,8 @@ from app.services.document_processor import (
     ExtractedTextResult,
     PermanentProcessingError,
     TransientProcessingError,
+    get_document_processor,
+    set_document_processor,
 )
 from app.services.prompts import EXTRACTION_PROMPT
 from logger_manager import LoggerManager
@@ -152,18 +154,8 @@ class GeminiDocumentProcessor(DocumentProcessor):
         )
 
 
-_default_processor: DocumentProcessor | None = None
-
-
-def get_document_processor() -> DocumentProcessor:
-    """Return the configured DocumentProcessor instance."""
-    global _default_processor
-    if _default_processor is None:
-        _default_processor = GeminiDocumentProcessor()
-    return _default_processor
-
-
-def set_document_processor(processor: DocumentProcessor | None) -> None:
-    """Override the document processor (useful for dependency injection in unit tests)."""
-    global _default_processor
-    _default_processor = processor
+__all__ = [
+    "GeminiDocumentProcessor",
+    "get_document_processor",
+    "set_document_processor",
+]

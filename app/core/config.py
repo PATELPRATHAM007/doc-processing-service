@@ -60,9 +60,20 @@ class Settings(BaseSettings):
         "image/bmp",
     }
 
+    # OCR Provider Selection ("gemini" or "paddleocr_vl")
+    OCR_PROVIDER: str = "gemini"
+
     # Google Gemini OCR Provider
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.6-flash"
+
+    # PaddleOCR-VL-1.6 Provider
+    PADDLEOCR_VL_PIPELINE_VERSION: str = "v1.6"
+    PADDLEOCR_VL_MODEL_NAME: str = "PaddlePaddle/PaddleOCR-VL-1.6"
+    PADDLEOCR_VL_BACKEND: str = "vllm-server"  # "vllm-server" or "local"
+    PADDLEOCR_VL_SERVER_URL: str = "http://localhost:8080/v1"
+    PADDLEOCR_VL_DEVICE: str = "cpu"  # "cpu", "cuda", or "mps"
+    PADDLEOCR_VL_TIMEOUT_SECONDS: int = 120
 
     @property
     def celery_broker(self) -> str:
