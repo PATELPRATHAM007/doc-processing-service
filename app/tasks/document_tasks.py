@@ -21,8 +21,8 @@ from app.modules.documents.models import (
 from app.services.document_processor import (
     PermanentProcessingError,
     TransientProcessingError,
+    get_document_processor,
 )
-from app.services.gemini_service import get_document_processor
 from logger_manager import LoggerManager
 
 task_logger = LoggerManager(folder_name="celery")
@@ -141,13 +141,15 @@ def process_document_task(self: Task, job_id: str) -> dict[str, Any]:
 
         # Execute OCR / document processing
         file_path = Path(document.file_path)
-        processor = get_document_processor()
+        target_provider = getattr(job, "provider", None)
+        processor = get_document_processor(provider=target_provider)
         task_logger.info(
-            "Starting extraction for document %s (file=%s, type=%s, size=%d bytes)",
+            "Starting extraction for document %s (file=%s, type=%s, size=%d bytes, provider=%s)",
             document.id,
             document.filename,
             document.content_type,
             document.size_bytes,
+            target_provider or settings.OCR_PROVIDER,
         )
 
         extracted = processor.process(

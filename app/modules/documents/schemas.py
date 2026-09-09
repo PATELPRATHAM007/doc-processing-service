@@ -14,6 +14,7 @@ class JobSummary(BaseModel):
 
     id: str
     status: str
+    provider: str | None = None
     attempts: int
     error: str | None = None
     created_at: datetime
@@ -32,6 +33,9 @@ class DocumentUploadResponse(BaseModel):
     size_bytes: int = Field(..., description="File size in bytes")
     status: str = Field(..., description="Document processing status")
     job_id: str = Field(..., description="ID of the background processing job")
+    provider: str | None = Field(
+        default=None, description="Requested or configured OCR provider"
+    )
     message: str = Field(
         default="Document uploaded and queued for processing.",
         description="Informational status message",
@@ -63,6 +67,7 @@ class JobResponse(BaseModel):
     id: str
     document_id: str
     status: str
+    provider: str | None = None
     attempts: int
     error: str | None = None
     created_at: datetime
