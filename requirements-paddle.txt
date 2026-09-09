@@ -1,0 +1,7 @@
+# Optional dependencies for local PaddleOCR-VL-1.6 inference
+# Install on macOS / Linux CPU: pip install -r requirements-paddle.txt
+# For NVIDIA GPU on Linux, replace paddlepaddle with paddlepaddle-gpu
+paddlepaddle>=3.3.0
+paddleocr[doc-parser]>=3.6.0
+paddlex>=3.7.0
+pypdfium2>=5.0.0
