@@ -184,34 +184,51 @@ fi
 
 echo -e "  Venv Python    : ${GREEN}${VENV_PYTHON}${NC}"
 
-# Upgrade pip, setuptools, wheel
+# Upgrade pip, setuptools, wheel using python -m pip (avoids Windows pip.exe file-lock)
 echo "  Upgrading pip, setuptools, and wheel..."
-"${VENV_PIP}" install --upgrade --quiet pip setuptools wheel
+"${VENV_PYTHON}" -m pip install --upgrade --quiet pip setuptools wheel || true
 
 # ------------------------------------------------------------------------------
 # 4. Install PaddlePaddle & PaddleOCR Windows Packages
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}[4/6] Installing PaddlePaddle & PaddleOCR Dependencies...${NC}"
 
+PADDLE_INSTALLED=0
 if [[ "${DETECTED_DEVICE}" == "gpu" && "${HAS_GPU}" -eq 1 ]]; then
-    echo -e "  Installing ${BOLD}paddlepaddle-gpu${NC} for NVIDIA CUDA on Windows..."
-    "${VENV_PIP}" install paddlepaddle-gpu || {
-        echo -e "${YELLOW}Warning: paddlepaddle-gpu install failed. Falling back to CPU paddlepaddle...${NC}"
-        "${VENV_PIP}" install paddlepaddle
-        DETECTED_DEVICE="cpu"
-    }
-else
+    echo -e "  Attempting to install ${BOLD}paddlepaddle-gpu${NC} for CUDA on Windows..."
+    CUDA_INDEXES=(
+        "https://www.paddlepaddle.org.cn/packages/stable/cu118"
+        "https://www.paddlepaddle.org.cn/packages/stable/cu120"
+        "https://www.paddlepaddle.org.cn/packages/stable/cu126"
+    )
+
+    for idx in "${CUDA_INDEXES[@]}"; do
+        echo "  Trying CUDA index: ${idx}..."
+        if "${VENV_PYTHON}" -m pip install paddlepaddle-gpu --extra-index-url "${idx}"; then
+            PADDLE_INSTALLED=1
+            echo -e "  ${GREEN}paddlepaddle-gpu installed successfully!${NC}"
+            break
+        fi
+    done
+
+    if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
+        echo -e "${YELLOW}Warning: paddlepaddle-gpu install failed. Falling back to CPU mode...${NC}"
+    fi
+fi
+
+if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
     echo -e "  Installing ${BOLD}paddlepaddle${NC} (CPU mode)..."
-    "${VENV_PIP}" install paddlepaddle
+    "${VENV_PYTHON}" -m pip install paddlepaddle
+    DETECTED_DEVICE="cpu"
 fi
 
 echo "  Installing paddleocr[doc-parser], paddlex, and pypdfium2..."
-"${VENV_PIP}" install "paddleocr[doc-parser]>=3.6.0" "paddlex>=3.7.0" "pypdfium2>=5.0.0"
+"${VENV_PYTHON}" -m pip install "paddleocr[doc-parser]>=3.6.0" "paddlex>=3.7.0" "pypdfium2>=5.0.0"
 
 # Install main requirements if present
 if [ -f "${PROJECT_ROOT}/requirements.txt" ]; then
     echo "  Installing project requirements from requirements.txt..."
-    "${VENV_PIP}" install -r "${PROJECT_ROOT}/requirements.txt" --quiet
+    "${VENV_PYTHON}" -m pip install -r "${PROJECT_ROOT}/requirements.txt" --quiet
 fi
 
 # ------------------------------------------------------------------------------
