@@ -529,6 +529,21 @@ code, pre, .font-monospace {
   font-size: 0.76rem;
   padding: 0.32rem 0.65rem;
   border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.provider-badge.badge-paddleocr {
+  background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+  color: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+}
+
+.provider-badge.badge-gemini {
+  background: linear-gradient(135deg, #0284C7 0%, #2563EB 100%);
+  color: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
 }
 
 .bg-subtle-tint {

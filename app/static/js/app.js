@@ -68,6 +68,7 @@
       btnRemoveFile: document.getElementById('btnRemoveFile'),
       btnCancelSelection: document.getElementById('btnCancelSelection'),
       btnProcess: document.getElementById('btnProcess'),
+      providerSelect: document.getElementById('providerSelect'),
 
       // Processing state
       processingHeader: document.getElementById('processingHeader'),
@@ -269,6 +270,9 @@
 
     const formData = new FormData();
     formData.append('file', state.selectedFile);
+    if (el.providerSelect && el.providerSelect.value) {
+      formData.append('provider', el.providerSelect.value);
+    }
 
     try {
       const response = await fetch(CONFIG.UPLOAD_ENDPOINT, {
@@ -431,8 +435,10 @@
       if (el.processingSubheader) {
         if (jobData && jobData.error && jobData.error.toLowerCase().includes('transient')) {
           el.processingSubheader.textContent = 'High AI model load encountered; worker is backing off & retrying automatically...';
+        } else if (jobData && jobData.provider && jobData.provider.toLowerCase().includes('paddle')) {
+          el.processingSubheader.textContent = 'PaddleOCR-VL-1.6 parsing document layout, text & tables...';
         } else {
-          el.processingSubheader.textContent = 'Google Gemini Multimodal OCR extracting text & tables...';
+          el.processingSubheader.textContent = 'AI Multimodal OCR extracting text, tables & structure...';
         }
       }
     } else if (status === 'completed') {
@@ -492,7 +498,16 @@
       el.resultFileName.textContent = state.selectedFile ? state.selectedFile.name : 'Processed Document';
     }
     if (el.resultJobId) el.resultJobId.textContent = result.job_id || state.currentJobId;
-    if (el.resultProviderBadge) el.resultProviderBadge.textContent = result.provider || 'gemini-3.6-flash';
+    if (el.resultProviderBadge) {
+      const prov = (result.provider || 'gemini-3.6-flash').toLowerCase();
+      el.resultProviderBadge.textContent = result.provider || 'gemini-3.6-flash';
+      el.resultProviderBadge.classList.remove('badge-paddleocr', 'badge-gemini');
+      if (prov.includes('paddle')) {
+        el.resultProviderBadge.classList.add('badge-paddleocr');
+      } else {
+        el.resultProviderBadge.classList.add('badge-gemini');
+      }
+    }
     if (el.resultDuration) el.resultDuration.textContent = `${state.elapsedSeconds}s`;
 
     // Counts

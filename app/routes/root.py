@@ -28,6 +28,7 @@ def root(request: Request) -> Any:
                 "version": settings.VERSION,
                 "max_file_size_mb": settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024),
                 "allowed_extensions": sorted(settings.ALLOWED_EXTENSIONS),
+                "default_ocr_provider": settings.OCR_PROVIDER,
             },
         )
     return {
