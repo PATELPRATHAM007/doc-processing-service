@@ -30,3 +30,7 @@ celery_app.autodiscover_tasks(["app.tasks", "app.modules.documents"])
 
 # Ensure tasks are registered immediately on module load
 import app.tasks.document_tasks  # noqa: F401
+
+# Standard Celery CLI aliases (supports -A app.core.celery_app)
+celery = celery_app
+app = celery_app
