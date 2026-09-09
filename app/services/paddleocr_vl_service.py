@@ -136,6 +136,14 @@ class PaddleOCRVLDocumentProcessor(DocumentProcessor):
             output = pipeline.predict(str(path))
         except Exception as exc:
             paddleocr_logger.error("Local PaddleOCR-VL prediction failed: %s", exc)
+            err_msg = str(exc)
+            if (
+                "PDFium: Data format error" in err_msg
+                or "Failed to load document" in err_msg
+            ):
+                raise PermanentProcessingError(
+                    "The uploaded document is corrupt or invalid. PDFium could not parse the document structure."
+                ) from exc
             raise PermanentProcessingError(
                 f"PaddleOCR-VL inference error: {exc}"
             ) from exc
