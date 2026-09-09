@@ -34,3 +34,6 @@ uploads/*
 
 # Generated documentation binaries
 README.pdf
+
+# Wheels cache
+*.whl

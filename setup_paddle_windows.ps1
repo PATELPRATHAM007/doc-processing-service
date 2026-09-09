@@ -114,8 +114,10 @@ function Invoke-Pip {
     $prevAction = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
 
-    & $VenvPython -m pip @Arguments
-    $code = $LASTEXITCODE
+    # Pipe to Out-Host so stdout streams live to the terminal
+    # without polluting the PowerShell function return value pipeline
+    & $VenvPython -m pip @Arguments | Out-Host
+    $code = [int]$LASTEXITCODE
 
     $ErrorActionPreference = $prevAction
 
@@ -174,73 +176,77 @@ if ($HasGpu -and ($Device -eq "gpu")) {
     if (-not $paddleInstalled) {
         Write-Host "`n  Downloading pre-compiled CUDA 12 wheel for RTX 2050..." -ForegroundColor Cyan
         $directWheels = @(
-            "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl",
-            "https://paddle-whl.cdn.bcebos.com/stable/cu118/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl"
+            "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl"
         )
 
         foreach ($wheelUrl in $directWheels) {
             $wheelFileName = [System.IO.Path]::GetFileName($wheelUrl)
             $localWheelPath = Join-Path $ProjectRoot $wheelFileName
-
-            Write-Host "`n  Target: $wheelFileName (~580 MB)" -ForegroundColor Cyan
-            Write-Host "  Source: $wheelUrl" -ForegroundColor Gray
-            Write-Host "  Progress:" -ForegroundColor Yellow
-
             $downloadSuccess = $false
-            $curlCmd = Get-Command curl.exe -ErrorAction SilentlyContinue
 
-            if ($curlCmd) {
-                # Resilient auto-resume loop: if network flickers, resume from existing bytes
-                $maxAttempts = 15
-                $attempt = 0
-
-                while ($attempt -lt $maxAttempts) {
-                    $attempt++
-                    & curl.exe -# -L -C - --retry 3 --retry-delay 2 -o "$localWheelPath" "$wheelUrl"
-
-                    if ((Test-Path "$localWheelPath") -and ($LASTEXITCODE -eq 0) -and ((Get-Item "$localWheelPath").Length -ge 500000000)) {
-                        $downloadSuccess = $true
-                        break
-                    }
-
-                    $currentBytes = if (Test-Path "$localWheelPath") { (Get-Item "$localWheelPath").Length } else { 0 }
-                    $currentMB = [math]::Round($currentBytes / 1MB, 1)
-
-                    if ($attempt -lt $maxAttempts) {
-                        Write-Host "  [Notice] Connection interrupted at ${currentMB} MB. Auto-resuming from where it left off (Attempt $attempt of $maxAttempts)..." -ForegroundColor Yellow
-                        Start-Sleep -Seconds 2
-                    }
-                }
+            # Check if wheel was already downloaded and is intact
+            if ((Test-Path "$localWheelPath") -and ((Get-Item "$localWheelPath").Length -ge 500000000)) {
+                $existingMB = [math]::Round((Get-Item "$localWheelPath").Length / 1MB, 1)
+                Write-Host "`n  Found existing cached wheel ($wheelFileName, ${existingMB} MB). Skipping download!" -ForegroundColor Green
+                $downloadSuccess = $true
             } else {
-                # Fallback to PowerShell WebRequest
-                try {
-                    Invoke-WebRequest -Uri $wheelUrl -OutFile "$localWheelPath"
-                    if ((Test-Path "$localWheelPath") -and ((Get-Item "$localWheelPath").Length -ge 550000000)) {
-                        $downloadSuccess = $true
+                Write-Host "`n  Target: $wheelFileName (~580 MB)" -ForegroundColor Cyan
+                Write-Host "  Source: $wheelUrl" -ForegroundColor Gray
+                Write-Host "  Progress:" -ForegroundColor Yellow
+
+                $curlCmd = Get-Command curl.exe -ErrorAction SilentlyContinue
+
+                if ($curlCmd) {
+                    # Resilient auto-resume loop: if network flickers, resume from existing bytes
+                    $maxAttempts = 15
+                    $attempt = 0
+
+                    while ($attempt -lt $maxAttempts) {
+                        $attempt++
+                        & curl.exe -# -L -C - --retry 3 --retry-delay 2 -o "$localWheelPath" "$wheelUrl"
+
+                        if ((Test-Path "$localWheelPath") -and ($LASTEXITCODE -eq 0) -and ((Get-Item "$localWheelPath").Length -ge 500000000)) {
+                            $downloadSuccess = $true
+                            break
+                        }
+
+                        $currentBytes = if (Test-Path "$localWheelPath") { (Get-Item "$localWheelPath").Length } else { 0 }
+                        $currentMB = [math]::Round($currentBytes / 1MB, 1)
+
+                        if ($attempt -lt $maxAttempts) {
+                            Write-Host "  [Notice] Connection interrupted at ${currentMB} MB. Auto-resuming from where it left off (Attempt $attempt of $maxAttempts)..." -ForegroundColor Yellow
+                            Start-Sleep -Seconds 2
+                        }
                     }
-                } catch {
-                    Write-Host "  Download error: $_" -ForegroundColor Yellow
+                } else {
+                    # Fallback to PowerShell WebRequest
+                    try {
+                        Invoke-WebRequest -Uri $wheelUrl -OutFile "$localWheelPath"
+                        if ((Test-Path "$localWheelPath") -and ((Get-Item "$localWheelPath").Length -ge 500000000)) {
+                            $downloadSuccess = $true
+                        }
+                    } catch {
+                        Write-Host "  Download error: $_" -ForegroundColor Yellow
+                    }
                 }
             }
 
             if ($downloadSuccess) {
-                Write-Host "`n  Download 100% completed! Installing CUDA wheel into virtual environment..." -ForegroundColor Green
-                $res = Invoke-Pip -Arguments @("install", "$localWheelPath") -IgnoreError
+                Write-Host "`n  Installing CUDA 12 wheel into virtual environment..." -ForegroundColor Green
+                # Ensure CPU paddlepaddle is uninstalled first so it cannot conflict
+                Invoke-Pip -Arguments @("uninstall", "-y", "paddlepaddle") -IgnoreError | Out-Null
+                $res = Invoke-Pip -Arguments @("install", "--force-reinstall", "$localWheelPath") -IgnoreError
                 if ($res -eq 0) {
                     $paddleInstalled = $true
                     $Device = "gpu"
                     Write-Host "  paddlepaddle-gpu installed successfully with CUDA acceleration!" -ForegroundColor Green
-                    Remove-Item "$localWheelPath" -Force -ErrorAction SilentlyContinue
+                    # Keep $localWheelPath cached so future script runs never re-download!
                     break
                 } else {
-                    Write-Host "  Wheel installation returned exit code $res. Trying next wheel candidate..." -ForegroundColor Yellow
+                    Write-Host "  Wheel installation returned exit code $res." -ForegroundColor Yellow
                 }
-                Remove-Item "$localWheelPath" -Force -ErrorAction SilentlyContinue
             } else {
                 Write-Host "  Could not complete download from $wheelUrl" -ForegroundColor Yellow
-                if (Test-Path "$localWheelPath") {
-                    Remove-Item "$localWheelPath" -Force -ErrorAction SilentlyContinue
-                }
             }
         }
     }

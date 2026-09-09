@@ -224,47 +224,54 @@ if [[ "${DETECTED_DEVICE}" == "gpu" && "${HAS_GPU}" -eq 1 ]]; then
         echo -e "\n  Downloading pre-compiled CUDA 12 wheel for RTX 2050..."
         DIRECT_WHEELS=(
             "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
-            "https://paddle-whl.cdn.bcebos.com/stable/cu118/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
         )
 
         for wheel_url in "${DIRECT_WHEELS[@]}"; do
             wheel_name="$(basename "${wheel_url}")"
             local_wheel="${PROJECT_ROOT}/${wheel_name}"
-            echo -e "  Target: ${wheel_name} (~580 MB)..."
-
-            attempt=0
-            max_attempts=15
             download_success=0
 
-            while [[ ${attempt} -lt ${max_attempts} ]]; do
-                attempt=$((attempt + 1))
-                curl -# -L -C - --retry 3 --retry-delay 2 -o "${local_wheel}" "${wheel_url}" || true
+            if [ -f "${local_wheel}" ]; then
+                file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
+                if [ "${file_size}" -ge 500000000 ]; then
+                    echo -e "  ${GREEN}Found existing cached wheel (${wheel_name}, $(( file_size / 1048576 )) MB). Skipping download!${NC}"
+                    download_success=1
+                fi
+            fi
 
-                if [ -f "${local_wheel}" ]; then
-                    file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
-                    if [ "${file_size}" -ge 500000000 ]; then
-                        download_success=1
-                        break
+            if [[ ${download_success} -eq 0 ]]; then
+                echo -e "  Target: ${wheel_name} (~580 MB)..."
+                attempt=0
+                max_attempts=15
+
+                while [[ ${attempt} -lt ${max_attempts} ]]; do
+                    attempt=$((attempt + 1))
+                    curl -# -L -C - --retry 3 --retry-delay 2 -o "${local_wheel}" "${wheel_url}" || true
+
+                    if [ -f "${local_wheel}" ]; then
+                        file_size=$(wc -c < "${local_wheel}" | tr -d ' ')
+                        if [ "${file_size}" -ge 500000000 ]; then
+                            download_success=1
+                            break
+                        fi
                     fi
-                fi
 
-                if [ ${attempt} -lt ${max_attempts} ]; then
-                    echo -e "  ${YELLOW}[Notice] Connection interrupted. Auto-resuming from where it left off (Attempt ${attempt} of ${max_attempts})...${NC}"
-                    sleep 2
-                fi
-            done
+                    if [ ${attempt} -lt ${max_attempts} ]; then
+                        echo -e "  ${YELLOW}[Notice] Connection interrupted. Auto-resuming from where it left off (Attempt ${attempt} of ${max_attempts})...${NC}"
+                        sleep 2
+                    fi
+                done
+            fi
 
             if [[ ${download_success} -eq 1 ]]; then
-                echo -e "  Download 100% completed! Installing CUDA wheel into venv..."
-                if "${VENV_PYTHON}" -m pip install "${local_wheel}"; then
+                echo -e "  Installing CUDA wheel into venv..."
+                "${VENV_PYTHON}" -m pip uninstall -y paddlepaddle 2>/dev/null || true
+                if "${VENV_PYTHON}" -m pip install --force-reinstall "${local_wheel}"; then
                     PADDLE_INSTALLED=1
-                    rm -f "${local_wheel}"
                     echo -e "  ${GREEN}paddlepaddle-gpu installed successfully with CUDA acceleration!${NC}"
                     break
                 fi
-                rm -f "${local_wheel}"
             fi
-            rm -f "${local_wheel}"
         done
     fi
 
