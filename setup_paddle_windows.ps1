@@ -146,24 +146,47 @@ $paddleInstalled = $false
 if ($HasGpu -and ($Device -eq "gpu")) {
     Write-Host "  NVIDIA GPU detected ($gpuName). Attempting to install paddlepaddle-gpu for CUDA..." -ForegroundColor Green
 
+    # Detect Python tag (e.g. cp311, cp310, cp312)
+    $pyTag = (& $VenvPython -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')").Trim()
+    Write-Host "  Python ABI tag: $pyTag" -ForegroundColor Cyan
+
     # Remove CPU paddlepaddle first if previously installed to avoid distribution collisions
     Invoke-Pip -Arguments @("uninstall", "-y", "paddlepaddle") -IgnoreError | Out-Null
 
-    # Official PaddlePaddle CUDA wheel repositories (HTML direct links queried with -f)
-    $cudaRepos = @(
-        "https://www.paddlepaddle.org.cn/packages/stable/cu126/paddlepaddle-gpu/",
-        "https://www.paddlepaddle.org.cn/packages/stable/cu118/paddlepaddle-gpu/",
-        "https://www.paddlepaddle.org.cn/packages/stable/cu120/paddlepaddle-gpu/"
+    # Strategy 1: Official PaddlePaddle index with trusted hosts
+    $cudaIndexUrls = @(
+        "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
+        "https://www.paddlepaddle.org.cn/packages/stable/cu118/"
     )
 
-    foreach ($repoUrl in $cudaRepos) {
-        Write-Host "  Trying CUDA wheel repository: $repoUrl" -ForegroundColor Cyan
-        $res = Invoke-Pip -Arguments @("install", "paddlepaddle-gpu", "-f", $repoUrl) -IgnoreError
+    foreach ($indexUrl in $cudaIndexUrls) {
+        Write-Host "  Trying CUDA index: $indexUrl" -ForegroundColor Cyan
+        $res = Invoke-Pip -Arguments @("install", "paddlepaddle-gpu", "-i", $indexUrl, "--trusted-host", "www.paddlepaddle.org.cn", "--trusted-host", "paddle-whl.cdn.bcebos.com") -IgnoreError
         if ($res -eq 0) {
             $paddleInstalled = $true
             $Device = "gpu"
-            Write-Host "  paddlepaddle-gpu installed successfully!" -ForegroundColor Green
+            Write-Host "  paddlepaddle-gpu installed successfully via $indexUrl!" -ForegroundColor Green
             break
+        }
+    }
+
+    # Strategy 2: Direct pre-compiled wheel download from CDN
+    if (-not $paddleInstalled) {
+        Write-Host "  Index lookup did not succeed. Trying direct CDN wheel installation..." -ForegroundColor Cyan
+        $directWheels = @(
+            "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl",
+            "https://paddle-whl.cdn.bcebos.com/stable/cu118/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl"
+        )
+
+        foreach ($wheelUrl in $directWheels) {
+            Write-Host "  Downloading and installing wheel directly: $wheelUrl" -ForegroundColor Cyan
+            $res = Invoke-Pip -Arguments @("install", $wheelUrl, "--trusted-host", "paddle-whl.cdn.bcebos.com") -IgnoreError
+            if ($res -eq 0) {
+                $paddleInstalled = $true
+                $Device = "gpu"
+                Write-Host "  paddlepaddle-gpu installed successfully from direct CDN wheel!" -ForegroundColor Green
+                break
+            }
         }
     }
 

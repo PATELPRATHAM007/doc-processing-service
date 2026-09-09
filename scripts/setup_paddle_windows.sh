@@ -202,20 +202,40 @@ if [[ "${DETECTED_DEVICE}" == "gpu" && "${HAS_GPU}" -eq 1 ]]; then
     # Uninstall cpu paddlepaddle if previously present
     "${VENV_PYTHON}" -m pip uninstall -y paddlepaddle 2>/dev/null || true
 
-    CUDA_REPOS=(
-        "https://www.paddlepaddle.org.cn/packages/stable/cu126/paddlepaddle-gpu/"
-        "https://www.paddlepaddle.org.cn/packages/stable/cu118/paddlepaddle-gpu/"
-        "https://www.paddlepaddle.org.cn/packages/stable/cu120/paddlepaddle-gpu/"
+    PY_TAG=$("${VENV_PYTHON}" -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
+
+    # Strategy 1: Official Paddle CUDA indexes with trusted hosts
+    CUDA_INDEXES=(
+        "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+        "https://www.paddlepaddle.org.cn/packages/stable/cu118/"
     )
 
-    for repo in "${CUDA_REPOS[@]}"; do
-        echo "  Trying CUDA wheel repository: ${repo}..."
-        if "${VENV_PYTHON}" -m pip install paddlepaddle-gpu -f "${repo}"; then
+    for idx in "${CUDA_INDEXES[@]}"; do
+        echo "  Trying CUDA index: ${idx}..."
+        if "${VENV_PYTHON}" -m pip install paddlepaddle-gpu -i "${idx}" --trusted-host www.paddlepaddle.org.cn --trusted-host paddle-whl.cdn.bcebos.com; then
             PADDLE_INSTALLED=1
-            echo -e "  ${GREEN}paddlepaddle-gpu installed successfully!${NC}"
+            echo -e "  ${GREEN}paddlepaddle-gpu installed successfully via ${idx}!${NC}"
             break
         fi
     done
+
+    # Strategy 2: Direct pre-compiled wheel download from CDN
+    if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
+        echo "  Index lookup failed. Trying direct CDN wheel installation..."
+        DIRECT_WHEELS=(
+            "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
+            "https://paddle-whl.cdn.bcebos.com/stable/cu118/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
+        )
+
+        for wheel_url in "${DIRECT_WHEELS[@]}"; do
+            echo "  Downloading and installing wheel directly: ${wheel_url}..."
+            if "${VENV_PYTHON}" -m pip install "${wheel_url}" --trusted-host paddle-whl.cdn.bcebos.com; then
+                PADDLE_INSTALLED=1
+                echo -e "  ${GREEN}paddlepaddle-gpu installed successfully from direct CDN wheel!${NC}"
+                break
+            fi
+        done
+    fi
 
     if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
         echo -e "${YELLOW}Warning: paddlepaddle-gpu install failed. Falling back to CPU mode...${NC}"
