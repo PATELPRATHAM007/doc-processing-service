@@ -1,6 +1,6 @@
 # Asynchronous Document Processing Microservice
 
-A production-ready asynchronous document processing backend microservice built with **FastAPI**, **Celery**, **Redis**, **PostgreSQL**, **SQLAlchemy 2.0**, and **Google Gemini Multimodal OCR API (`gemini-3.6-flash`)**, orchestrated with **Docker Compose**. Includes a built-in modern, responsive web UI for interactive document upload, real-time asynchronous job status tracking, and structured text analysis.
+A production-ready asynchronous document processing backend microservice built with **FastAPI**, **Celery**, **Redis**, **PostgreSQL**, **SQLAlchemy 2.0**, and **Dual-Engine OCR Support** (**Google Gemini Multimodal API `gemini-3.6-flash`** and **PaddlePaddle's `PaddleOCR-VL-1.6` Vision-Language Model**), orchestrated with **Docker Compose**. Includes a built-in modern, responsive web UI for interactive document upload, dynamic OCR engine selection, real-time asynchronous job status tracking, and structured Markdown text analysis.
 
 ---
 
@@ -13,7 +13,7 @@ A production-ready asynchronous document processing backend microservice built w
 
 ## Interactive Web Interface & User Workflow
 
-The service provides an intuitive, high-contrast web dashboard live at **[http://156.67.104.24:9000/](http://156.67.104.24:9000/)** (or locally at `http://localhost:9000` / `http://0.0.0.0:9000`). It gives users an end-to-end interactive experience to upload documents, monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
+The service provides an intuitive, high-contrast web dashboard live at **[http://156.67.104.24:9000/](http://156.67.104.24:9000/)** (or locally at `http://localhost:9000` / `http://0.0.0.0:9000`). It gives users an end-to-end interactive experience to upload documents, choose their preferred OCR extraction engine (Google Gemini or PaddleOCR-VL-1.6), monitor asynchronous background workers in real time, and inspect or export extracted text and tables.
 
 ### 1. Document Upload Interface
 
@@ -22,8 +22,9 @@ Users can easily upload files via drag-and-drop or file browser:
 ![Document Upload Interface](docs/images/document-upload-interface.png)
 
 - **Supported Formats**: `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.tiff`, `.bmp` (up to 10 MB).
+- **OCR Engine Selector**: Choose between **Google Gemini 3.6 Flash** (fast cloud multimodal API) or **PaddleOCR-VL-1.6** (compact SOTA vision-language model specialized for complex tables, formulas, charts, and document parsing). Defaults to configured `OCR_PROVIDER`.
 - **Client-Side Validation**: Checks file extensions and sizes instantly, presenting a file preview card with type badges and formatted file sizes.
-- **Single-Click Ingestion**: Clicking **"Process Document"** streams the file to `POST /api/v1/documents`. The FastAPI backend computes a SHA-256 hash in 64 KB chunks, writes the file to storage, enqueues the job into Redis, and returns an immediate `202 Accepted` response with a unique `job_id`.
+- **Single-Click Ingestion**: Clicking **"Process Document"** streams the file and chosen provider to `POST /api/v1/documents`. The FastAPI backend computes a SHA-256 hash in 64 KB chunks, writes the file to storage, enqueues the job into Redis, and returns an immediate `202 Accepted` response with a unique `job_id`.
 
 ---
 
@@ -34,7 +35,7 @@ Once submitted, the UI seamlessly transitions into the active processing view:
 - **Live Multi-Step Pipeline**:
   1. **Upload Document**: Transmitted and SHA-256 computed.
   2. **Enqueue Background Task**: Claimed by a Celery worker from the Redis queue.
-  3. **Multimodal OCR Extraction**: Analyzed with Google Gemini 3.6 Flash for text, tables, and formatting.
+  3. **Vision-Language OCR Extraction**: Analyzed via the chosen provider (PaddleOCR-VL-1.6 or Gemini 3.6 Flash) for layout, text, tables, and formulas.
   4. **Store Results**: Results committed to PostgreSQL with duplicate detection.
 - **Live Elapsed Timer**: Visual stopwatch showing processing duration.
 - **Continuous Polling Without Timeouts**: The frontend polls `GET /api/v1/jobs/{id}` every 1.5 seconds without artificial client timeouts. If the AI model encounters transient rate limits or high demand, the worker automatically applies exponential backoff and retries, while the UI dynamically informs the user.
@@ -49,19 +50,20 @@ When the background worker completes processing, the frontend automatically tran
 ![Document Extraction Result](docs/images/document-extraction-result.png)
 
 #### Explanation of the Output Interface Components:
+
 1. **Document Header Banner**:
    - **Status Badge**: Green `Completed` badge indicating successful worker execution.
-   - **AI Model Badge**: Identifies the exact OCR engine used (e.g. `gemini-3.6-flash`).
-   - **Document Title**: Clean display of the original uploaded document filename (e.g. `Take-Home Assignment - Python Developer.pdf`).
-   - **Job Metadata**: Shows the unique Celery tracking `Job ID` (e.g. `job_8a96181d1ae7`) and total execution duration (`Processed in 37s`).
+   - **AI Model Badge**: Identifies the exact OCR engine used (e.g. `paddleocr-vl-1.6` or `gemini-3.6-flash`).
+   - **Document Title**: Clean display of the original uploaded document filename.
+   - **Job Metadata**: Shows the unique Celery tracking `Job ID` and total execution duration.
 2. **Document Metrics Bar**:
-   - **Character Count**: Exact count of all extracted characters (e.g. `8,163` characters).
-   - **Word Count**: Accurate word count calculation (e.g. `1,252` words).
-   - **Line Count**: Total line count (e.g. `390` lines).
+   - **Character Count**: Exact count of all extracted characters.
+   - **Word Count**: Accurate word count calculation.
+   - **Line Count**: Total line count.
 3. **Interactive Search & Filter**:
    - Real-time client-side text search box (`Find in text...`). Matching terms are highlighted with `<mark>` tags instantly as you type.
 4. **Structured Text Container**:
-   - Monospace viewer preserving exact document layout, markdown formatting, section headers (`### Problem Statement`), bold tags, bullet points, and tabular structures verbatim.
+   - Monospace viewer preserving exact document layout, markdown formatting, section headers, bold tags, bullet points, and tabular structures verbatim.
 5. **One-Click Action Toolbar**:
    - **Copy Text**: Copies the entire raw extracted text directly to the system clipboard with instant visual confirmation.
    - **Download .txt**: Downloads the full extracted text as a clean `<filename>_extracted.txt` file directly to your downloads folder.
@@ -79,12 +81,12 @@ The microservice is engineered around a distributed, decoupled, event-driven arc
                                   +---------------------------------------+
                                          |                         ^
        1. POST /api/v1/documents (Upload)|                         | 5. Poll GET /api/v1/jobs/{id}
-                                         v                         |    GET /api/v1/jobs/{id}/result
+          (file + provider selection)    v                         |    GET /api/v1/jobs/{id}/result
                                   +--------------------+           |
                                   |    FastAPI Web     |-----------+
                                   |    (Uvicorn API)   |
                                   +--------------------+
-                                    |                |
+                                     |                |
                 2. Store metadata   |                | 3. Enqueue job_id
                    & stream file    v                v
                      +-------------------+      +-------------------+
@@ -99,13 +101,19 @@ The microservice is engineered around a distributed, decoupled, event-driven arc
                      |  - Atomic DB Job Claim (SELECT FOR UPDATE)   |
                      |  - Content Deduplication (SHA-256 Cache)     |
                      |  - Exponential Backoff Retries (429 / 503)   |
+                     |  - DocumentProcessor Factory (get_processor) |
                      +----------------------------------------------+
                                          |
-                                         | 5. Multimodal OCR Request
+                                         | 5. Pluggable OCR Processing
                                          v
                      +----------------------------------------------+
-                     |           Google Gemini API                  |
-                     |   (gemini-3.6-flash / multimodal model)      |
+                     |         Configured OCR Providers             |
+                     |                                              |
+                     |  1. Google Gemini API (gemini-3.6-flash)     |
+                     |                                              |
+                     |  2. PaddleOCR-VL-1.6 (Vision-Language SOTA)  |
+                     |     ├── Remote vLLM / GenAI HTTP server      |
+                     |     └── Local In-Process Python Pipeline     |
                      +----------------------------------------------+
 ```
 
@@ -206,6 +214,7 @@ erDiagram
 ```
 
 #### Key Schema Design Principles:
+
 1. **Prefixed IDs**: Primary keys use human-readable, domain-prefixed hex IDs (`doc_`, `job_`, `res_`) for unambiguous log tracing and debugging.
 2. **Hash Indexing (`file_hash`)**: B-Tree indexed `file_hash` on `documents` allows constant-time $O(1)$ duplicate checking across millions of records.
 3. **Status Indexing (`status`)**: B-Tree indexed `jobs.status` accelerates polling queries and periodic watchdog sweeps for stale/hung jobs.
@@ -267,14 +276,18 @@ The background worker architecture is fine-tuned for high-throughput, compute-he
 
 The service implements a strict error classification hierarchy to distinguish between temporary infrastructure glitches and fatal client/configuration errors:
 
-| Error Category | HTTP / Error Types | Celery Action | Database Update | User Feedback |
-|:---|:---|:---|:---|:---|
-| **Transient Errors** | HTTP 429 (Rate Limit)<br/>HTTP 500, 502, 503, 504<br/>Socket / Connection Timeout | Automatic Retry with Exponential Backoff (max 3 attempts) | Updates `job.error` with retry notice; preserves `status = processing` | UI displays: *"Worker is backing off & retrying automatically..."* |
-| **Permanent Errors** | HTTP 401 (Invalid API Key)<br/>HTTP 400 (Corrupt File)<br/>Invalid MIME / Unreadable bytes | Fail Fast (zero retries) | Sets `job.status = failed`<br/>Sets `document.status = failed` | UI displays exact error details immediately |
+| Error Category             | HTTP / Error Types                                                               | Celery Action                                             | Database Update                                                           | User Feedback                                                       |
+| :------------------------- | :------------------------------------------------------------------------------- | :-------------------------------------------------------- | :------------------------------------------------------------------------ | :------------------------------------------------------------------ |
+| **Transient Errors** | HTTP 429 (Rate Limit)HTTP 500, 502, 503, 504Socket / Connection Timeout          | Automatic Retry with Exponential Backoff (max 3 attempts) | Updates`job.error` with retry notice; preserves `status = processing` | UI displays:*"Worker is backing off & retrying automatically..."* |
+| **Permanent Errors** | HTTP 401 (Invalid API Key)HTTP 400 (Corrupt File)Invalid MIME / Unreadable bytes | Fail Fast (zero retries)                                  | Sets`job.status = failed`Sets `document.status = failed`              | UI displays exact error details immediately                         |
 
 #### Exponential Backoff Formula
+
 For transient errors, the task retry countdown is calculated as:
-$$\text{countdown} = \min\left(300,\; 2^{\text{attempts}} \times 5\text{s}\right)$$
+
+$$
+\text{countdown} = \min\left(300,\; 2^{\text{attempts}} \times 5\text{s}\right)
+$$
 
 - **Attempt 1 Failure**: Retries after **5 seconds**
 - **Attempt 2 Failure**: Retries after **10 seconds**
@@ -286,6 +299,7 @@ $$\text{countdown} = \min\left(300,\; 2^{\text{attempts}} \times 5\text{s}\right
 ### 6. Cryptographic Content Deduplication
 
 To prevent redundant API cost and latency, the system implements content-addressable deduplication:
+
 1. **Streaming SHA-256 Hashing**:
    During file upload, bytes are streamed in 64 KB chunks through Python's `hashlib.sha256()`. Memory consumption remains strictly $O(1)$ regardless of file size.
 2. **Instant Cache Retrieval**:
@@ -311,6 +325,7 @@ Centralized observability is provided by [`LoggerManager`](file:///Users/mac/Des
 The web interface is built directly inside FastAPI without external Node.js build steps or heavy frameworks:
 
 ### Technology Stack
+
 - **FastAPI**: Direct HTML streaming and Jinja2 templating.
 - **Jinja2**: Modular HTML templates (`app/templates/base.html`, `app/templates/index.html`).
 - **Bootstrap 5.3 & Bootstrap Icons**: Responsive grid system and modern icon set via CDN.
@@ -318,30 +333,96 @@ The web interface is built directly inside FastAPI without external Node.js buil
 - **Vanilla CSS**: Bespoke styling adhering to the project's strict 4-color design tokens (`app/static/css/style.css`).
 
 ### Design & Color Palette Tokens
-| Color Code | Name | Role in Interface |
-|:---|:---|:---|
-| **`#EDEBE4`** | Warm Sand / Canvas | Page background, card surface tints, and badge backgrounds |
-| **`#111111`** | Obsidian Black | High-contrast typography, dark headers, and code viewer |
-| **`#1D4ED8`** | Royal Cobalt Blue | Primary action buttons ("Process Document"), brand icons, active states |
-| **`#F43F5E`** | Vibrant Rose Coral | Error alerts, file removal buttons, and secondary badges |
+
+| Color Code            | Name               | Role in Interface                                                       |
+| :-------------------- | :----------------- | :---------------------------------------------------------------------- |
+| **`#EDEBE4`** | Warm Sand / Canvas | Page background, card surface tints, and badge backgrounds              |
+| **`#111111`** | Obsidian Black     | High-contrast typography, dark headers, and code viewer                 |
+| **`#1D4ED8`** | Royal Cobalt Blue  | Primary action buttons ("Process Document"), brand icons, active states |
+| **`#F43F5E`** | Vibrant Rose Coral | Error alerts, file removal buttons, and secondary badges                |
 
 ---
 
 ## Tech Stack
 
-| Technology | Version | Purpose |
-|---|---|---|
-| **Python** | 3.11+ | Core runtime language |
-| **FastAPI** | 0.115+ | High-performance asynchronous REST API |
-| **Celery** | 5.3+ | Distributed task queue and background worker |
-| **Redis** | 7.x | Message broker and caching backend |
-| **PostgreSQL** | 16.x | ACID-compliant relational persistence |
-| **SQLAlchemy** | 2.0+ | Modern typed ORM and connection pooling |
-| **Google GenAI** | 0.1+ | Multimodal OCR and document text extraction |
-| **Alembic** | 1.13+ | Automated database migrations |
-| **Docker Compose**| v2+ | Multi-container service orchestration |
-| **Pytest** | 9.x | Comprehensive automated test suite (36 unit/integration tests) |
-| **Ruff** | 0.3+ | Fast code linting and style formatting |
+| Technology               | Version | Purpose                                                        |
+| ------------------------ | ------- | -------------------------------------------------------------- |
+| **Python**         | 3.11+   | Core runtime language                                          |
+| **FastAPI**        | 0.115+  | High-performance asynchronous REST API                         |
+| **Celery**         | 5.3+    | Distributed task queue and background worker                   |
+| **Redis**          | 7.x     | Message broker and caching backend                             |
+| **PostgreSQL**     | 16.x    | ACID-compliant relational persistence                          |
+| **SQLAlchemy**     | 2.0+    | Modern typed ORM and connection pooling                        |
+| **Google GenAI**   | 0.1+    | Multimodal OCR and document text extraction                    |
+| **PaddleOCR / vLLM**| 3.6+   | SOTA Vision-Language document parsing (PaddleOCR-VL-1.6)       |
+| **PyPDFium2**      | 5.13+   | High-performance PDF page rendering to images                  |
+| **Alembic**        | 1.13+   | Automated database migrations                                  |
+| **Docker Compose** | v2+     | Multi-container service orchestration                          |
+| **Pytest**         | 9.x     | Comprehensive automated test suite (54 unit/integration tests) |
+| **Ruff**           | 0.3+    | Fast code linting and style formatting                         |
+
+---
+
+## PaddleOCR-VL-1.6 Vision-Language Model Integration
+
+The microservice natively supports **[PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6)**, a 0.9B parameter vision-language model developed by PaddlePaddle. It sets new state-of-the-art records (96.33% on OmniDocBench v1.6) across comprehensive document parsing tasks:
+- **Complex Tables & Spreadsheets**: Preserves merged cells and tabular layout as clean Markdown tables.
+- **Mathematical Formulas**: Converts displayed and inline equations into LaTeX/Markdown.
+- **Charts & Graphs**: Recognizes chart structures, axes, and legends.
+- **Text Spotting & Layout**: Accurately reproduces reading order, headers, and section hierarchies.
+- **Multi-Page PDFs**: Pages are rendered using `pypdfium2` and aggregated with clear page boundaries (`---`).
+
+### Dual-Backend Execution Strategy
+
+`PaddleOCRVLDocumentProcessor` is designed to support two interchangeable execution backends via configuration:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                      PaddleOCRVLDocumentProcessor                      │
+│                                                                        │
+│   PADDLEOCR_VL_BACKEND="vllm-server"     PADDLEOCR_VL_BACKEND="local"  │
+│   (Production GPU Deployment)            (In-Process Python Pipeline)  │
+│                 │                                      │               │
+│                 ▼                                      ▼               │
+│       vLLM / GenAI HTTP Server               PaddleOCRVL Pipeline      │
+│       (Docker / Cloud GPU cluster)           (Local CPU/GPU)           │
+│       - Zero model bloat on worker           - Direct Python call      │
+│       - OpenAI-compatible chat API           - Requires paddlepaddle   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Remote vLLM Server Mode (`vllm-server` — Recommended for Production)
+The worker container remains lightweight, dispatching rendered page images over HTTP to a dedicated GPU inference server.
+To run the official PaddleOCR GenAI vLLM server with NVIDIA GPU support:
+
+```bash
+docker run \
+    --gpus all \
+    -p 8080:8080 \
+    ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu \
+    paddleocr genai_server --model_name PaddleOCR-VL-1.6-0.9B --host 0.0.0.0 --port 8080 --backend vllm
+```
+
+Configure `.env`:
+```bash
+OCR_PROVIDER="paddleocr_vl"
+PADDLEOCR_VL_BACKEND="vllm-server"
+PADDLEOCR_VL_SERVER_URL="http://your-gpu-host:8080/v1"
+```
+
+#### 2. Local In-Process Mode (`local`)
+Runs the model in-process inside the worker Python environment:
+```bash
+python -m pip install paddlepaddle-gpu==3.2.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+python -m pip install -U "paddleocr[doc-parser]>=3.6.0"
+```
+
+Configure `.env`:
+```bash
+OCR_PROVIDER="paddleocr_vl"
+PADDLEOCR_VL_BACKEND="local"
+PADDLEOCR_VL_DEVICE="cuda"  # or "cpu"
+```
 
 ---
 
@@ -350,32 +431,35 @@ The web interface is built directly inside FastAPI without external Node.js buil
 This project is engineered to strictly satisfy and exceed every requirement, evaluation criterion, and architectural expectation outlined in the Take-Home Assignment:
 
 > ### Objective
+>
 > Build a small backend service that accepts documents and processes them asynchronously.
 > The assignment is intended to evaluate your skills in **Python**, **FastAPI**, **REST APIs**, **databases**, **asynchronous processing**, **Redis/RabbitMQ**, **Docker**, **testing**, and **basic distributed-system concepts**.
 >
 > ### Problem Statement
+>
 > Build a backend service that accepts documents for processing and processes them asynchronously using one or more background workers.
 > The system should expose REST APIs through FastAPI, persist document/job information in a database, and use Redis or RabbitMQ as a message broker/queue.
 > The document-processing step should extract text from a document using either:
+>
 > - a local extraction implementation, or
 > - an external OCR/document-processing service.
-> *You do not need to train or deploy an AI model.*
+>   *You do not need to train or deploy an AI model.*
 
 ---
 
 ### Evaluation Criteria & Requirements Fulfillment Matrix
 
-| Evaluation Dimension | Assignment Requirement | Project Implementation | Primary File References |
-|:---|:---|:---|:---|
-| **Python & Modern Typing** | Idiomatic, clean, modular Python 3.11+ code with strict type annotations, docstrings, and robust error handling. | Fully type-annotated with Python 3.11+ syntax, passing 100% strict [`pyright`](file:///Users/mac/Desktop/doc-processing-service/pyproject.toml) type-checking, formatted with Ruff, adhering to clean architecture and SOLID design patterns. | [`app/main.py`](file:///Users/mac/Desktop/doc-processing-service/app/main.py)<br/>[`app/services/document_processor.py`](file:///Users/mac/Desktop/doc-processing-service/app/services/document_processor.py) |
-| **FastAPI & REST APIs** | Expose clean, standardized REST APIs for document upload, job status, and results. | Modular, versioned `/api/v1` routes with strict Pydantic v2 schemas ([`DocumentUploadResponse`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/document.py), [`JobStatusResponse`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/job.py), [`JobResultResponse`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/job.py)), unified API response enveloper, streaming chunked file upload, and autogenerated Swagger / ReDoc docs. | [`app/routes/v1/documents.py`](file:///Users/mac/Desktop/doc-processing-service/app/routes/v1/documents.py)<br/>[`app/routes/v1/jobs.py`](file:///Users/mac/Desktop/doc-processing-service/app/routes/v1/jobs.py)<br/>[`app/schemas/`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/) |
-| **Database Persistence** | Persist document metadata and asynchronous job status in a relational database. | PostgreSQL 16 + SQLAlchemy 2.0 with indexed UUID hex keys (`doc_`, `job_`, `res_`), foreign key cascades, unique constraints on job results, and automated Alembic schema migrations. | [`app/models/document.py`](file:///Users/mac/Desktop/doc-processing-service/app/models/document.py)<br/>[`app/models/job.py`](file:///Users/mac/Desktop/doc-processing-service/app/models/job.py)<br/>[`alembic/`](file:///Users/mac/Desktop/doc-processing-service/alembic/) |
-| **Asynchronous Processing** | Decouple upload ingestion from heavy document processing using background worker(s). | Celery 5.3 prefork worker pool consuming from Redis. `POST /api/v1/documents` validates and saves file in <10ms, returning `202 Accepted` immediately; Celery workers asynchronously handle the OCR pipeline. | [`app/tasks/document_tasks.py`](file:///Users/mac/Desktop/doc-processing-service/app/tasks/document_tasks.py)<br/>[`app/core/celery_app.py`](file:///Users/mac/Desktop/doc-processing-service/app/core/celery_app.py) |
-| **Message Broker / Queue** | Use Redis or RabbitMQ as the message broker/queue. | Redis 7 configured as message broker and result store with dedicated queue binding (`document_processing_queue`), late task ACKs (`task_acks_late=True`), re-queuing on worker loss (`task_reject_on_worker_lost=True`), and fair prefetch (`worker_prefetch_multiplier=1`). | [`app/core/config.py`](file:///Users/mac/Desktop/doc-processing-service/app/core/config.py)<br/>[`docker-compose.yml`](file:///Users/mac/Desktop/doc-processing-service/docker-compose.yml) |
-| **Document Processing / OCR** | Extract text using local extraction or external OCR service without requiring custom model training. | Pluggable [`DocumentProcessor`](file:///Users/mac/Desktop/doc-processing-service/app/services/document_processor.py) strategy pattern implemented via Google Gemini 3.6 Flash Multimodal OCR API ([`GeminiProcessor`](file:///Users/mac/Desktop/doc-processing-service/app/services/gemini_service.py)), supporting PDF, PNG, JPG, WEBP, TIFF, BMP with full table and markdown extraction. | [`app/services/gemini_service.py`](file:///Users/mac/Desktop/doc-processing-service/app/services/gemini_service.py)<br/>[`app/services/document_processor.py`](file:///Users/mac/Desktop/doc-processing-service/app/services/document_processor.py) |
-| **Distributed System Concepts** | Graceful crash recovery, worker scaling, task idempotency, exponential backoff, deduplication. | Cryptographic SHA-256 stream hashing for $O(1)$ duplicate cache bypass (<5ms execution), row-level DB locks (`SELECT FOR UPDATE`), exponential backoff retries for transient 429/503 errors, and max retry caps (3 attempts) to prevent poison pills. | [`app/tasks/document_tasks.py`](file:///Users/mac/Desktop/doc-processing-service/app/tasks/document_tasks.py)<br/>[Distributed System Section](#distributed-systems-architecture--production-considerations) |
-| **Docker & Orchestration** | Complete multi-container reproducible environment. | Production-ready [`docker-compose.yml`](file:///Users/mac/Desktop/doc-processing-service/docker-compose.yml) orchestrating 4 health-checked containers (`doc_service_web`, `doc_service_worker`, `doc_service_redis`, `doc_service_db`), with named volumes, network isolation, and automated startup migrations. | [`Dockerfile`](file:///Users/mac/Desktop/doc-processing-service/Dockerfile)<br/>[`docker-compose.yml`](file:///Users/mac/Desktop/doc-processing-service/docker-compose.yml)<br/>[`docker-entrypoint.sh`](file:///Users/mac/Desktop/doc-processing-service/docker-entrypoint.sh) |
-| **Testing & Quality Assurance** | Comprehensive automated tests covering happy path and edge cases. | 36 automated Pytest tests validating REST endpoints, validation errors, Celery task lifecycle, transient retry backoff, permanent failure handling, and SHA-256 deduplication. | [`tests/`](file:///Users/mac/Desktop/doc-processing-service/tests/) |
+| Evaluation Dimension                  | Assignment Requirement                                                                                           | Project Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Primary File References                                                                                                                                                                                                                                                                        |
+| :------------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Python & Modern Typing**      | Idiomatic, clean, modular Python 3.11+ code with strict type annotations, docstrings, and robust error handling. | Fully type-annotated with Python 3.11+ syntax, passing 100% strict[`pyright`](file:///Users/mac/Desktop/doc-processing-service/pyproject.toml) type-checking, formatted with Ruff, adhering to clean architecture and SOLID design patterns.                                                                                                                                                                                                                                  | [`app/main.py`](file:///Users/mac/Desktop/doc-processing-service/app/main.py)[`app/services/document_processor.py`](file:///Users/mac/Desktop/doc-processing-service/app/services/document_processor.py)                                                                                     |
+| **FastAPI & REST APIs**         | Expose clean, standardized REST APIs for document upload, job status, and results.                               | Modular, versioned`/api/v1` routes with strict Pydantic v2 schemas ([`DocumentUploadResponse`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/document.py), [`JobStatusResponse`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/job.py), [`JobResultResponse`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/job.py)), unified API response enveloper, streaming chunked file upload, and autogenerated Swagger / ReDoc docs. | [`app/routes/v1/documents.py`](file:///Users/mac/Desktop/doc-processing-service/app/routes/v1/documents.py)[`app/routes/v1/jobs.py`](file:///Users/mac/Desktop/doc-processing-service/app/routes/v1/jobs.py)[`app/schemas/`](file:///Users/mac/Desktop/doc-processing-service/app/schemas/) |
+| **Database Persistence**        | Persist document metadata and asynchronous job status in a relational database.                                  | PostgreSQL 16 + SQLAlchemy 2.0 with indexed UUID hex keys (`doc_`, `job_`, `res_`), foreign key cascades, unique constraints on job results, and automated Alembic schema migrations.                                                                                                                                                                                                                                                                                    | [`app/models/document.py`](file:///Users/mac/Desktop/doc-processing-service/app/models/document.py)[`app/models/job.py`](file:///Users/mac/Desktop/doc-processing-service/app/models/job.py)[`alembic/`](file:///Users/mac/Desktop/doc-processing-service/alembic/)                         |
+| **Asynchronous Processing**     | Decouple upload ingestion from heavy document processing using background worker(s).                             | Celery 5.3 prefork worker pool consuming from Redis.`POST /api/v1/documents` validates and saves file in <10ms, returning `202 Accepted` immediately; Celery workers asynchronously handle the OCR pipeline.                                                                                                                                                                                                                                                               | [`app/tasks/document_tasks.py`](file:///Users/mac/Desktop/doc-processing-service/app/tasks/document_tasks.py)[`app/core/celery_app.py`](file:///Users/mac/Desktop/doc-processing-service/app/core/celery_app.py)                                                                             |
+| **Message Broker / Queue**      | Use Redis or RabbitMQ as the message broker/queue.                                                               | Redis 7 configured as message broker and result store with dedicated queue binding (`document_processing_queue`), late task ACKs (`task_acks_late=True`), re-queuing on worker loss (`task_reject_on_worker_lost=True`), and fair prefetch (`worker_prefetch_multiplier=1`).                                                                                                                                                                                           | [`app/core/config.py`](file:///Users/mac/Desktop/doc-processing-service/app/core/config.py)[`docker-compose.yml`](file:///Users/mac/Desktop/doc-processing-service/docker-compose.yml)                                                                                                       |
+| **Document Processing / OCR**   | Extract text using local extraction or external OCR service without requiring custom model training.             | Pluggable[`DocumentProcessor`](file:///Users/mac/Desktop/doc-processing-service/app/services/document_processor.py) strategy pattern implemented via Google Gemini 3.6 Flash Multimodal OCR API ([`GeminiProcessor`](file:///Users/mac/Desktop/doc-processing-service/app/services/gemini_service.py)), supporting PDF, PNG, JPG, WEBP, TIFF, BMP with full table and markdown extraction.                                                                                   | [`app/services/gemini_service.py`](file:///Users/mac/Desktop/doc-processing-service/app/services/gemini_service.py)[`app/services/document_processor.py`](file:///Users/mac/Desktop/doc-processing-service/app/services/document_processor.py)                                               |
+| **Distributed System Concepts** | Graceful crash recovery, worker scaling, task idempotency, exponential backoff, deduplication.                   | Cryptographic SHA-256 stream hashing for$O(1)$ duplicate cache bypass (<5ms execution), row-level DB locks (`SELECT FOR UPDATE`), exponential backoff retries for transient 429/503 errors, and max retry caps (3 attempts) to prevent poison pills.                                                                                                                                                                                                                       | [`app/tasks/document_tasks.py`](file:///Users/mac/Desktop/doc-processing-service/app/tasks/document_tasks.py)[Distributed System Section](#distributed-systems-architecture--production-considerations)                                                                                        |
+| **Docker & Orchestration**      | Complete multi-container reproducible environment.                                                               | Production-ready[`docker-compose.yml`](file:///Users/mac/Desktop/doc-processing-service/docker-compose.yml) orchestrating 4 health-checked containers (`doc_service_web`, `doc_service_worker`, `doc_service_redis`, `doc_service_db`), with named volumes, network isolation, and automated startup migrations.                                                                                                                                                      | [`Dockerfile`](file:///Users/mac/Desktop/doc-processing-service/Dockerfile)[`docker-compose.yml`](file:///Users/mac/Desktop/doc-processing-service/docker-compose.yml)[`docker-entrypoint.sh`](file:///Users/mac/Desktop/doc-processing-service/docker-entrypoint.sh)                       |
+| **Testing & Quality Assurance** | Comprehensive automated tests covering happy path and edge cases.                                                | 36 automated Pytest tests validating REST endpoints, validation errors, Celery task lifecycle, transient retry backoff, permanent failure handling, and SHA-256 deduplication.                                                                                                                                                                                                                                                                                                 | [`tests/`](file:///Users/mac/Desktop/doc-processing-service/tests/)                                                                                                                                                                                                                           |
 
 ---
 
@@ -390,9 +474,21 @@ cp .env.example .env
 ```
 
 Edit `.env` and set your Google Gemini API key:
-```bash
+
+# OCR Provider Selection ("gemini" or "paddleocr_vl")
+OCR_PROVIDER="gemini"
+
+# Google Gemini API
 GEMINI_API_KEY="your-gemini-api-key-here"
 GEMINI_MODEL="gemini-3.6-flash"
+
+# PaddleOCR-VL-1.6 Provider Configuration
+PADDLEOCR_VL_PIPELINE_VERSION="v1.6"
+PADDLEOCR_VL_MODEL_NAME="PaddlePaddle/PaddleOCR-VL-1.6"
+PADDLEOCR_VL_BACKEND="vllm-server"  # "vllm-server" or "local"
+PADDLEOCR_VL_SERVER_URL="http://localhost:8080/v1"
+PADDLEOCR_VL_DEVICE="cpu"
+PADDLEOCR_VL_TIMEOUT_SECONDS=120
 ```
 
 ### 2. Launch All Services
@@ -402,6 +498,7 @@ docker compose up --build -d
 ```
 
 This boots 4 healthy containers:
+
 - `doc_service_db` (PostgreSQL 16 on `localhost:6432`)
 - `doc_service_redis` (Redis 7 on `localhost:7379`)
 - `doc_service_web` (FastAPI on `http://localhost:9000`)
@@ -448,6 +545,31 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+### Automated Local Setup for PaddleOCR-VL (macOS & Ubuntu / Linux)
+
+To automatically install PaddlePaddle, PaddleOCR-VL-1.6 dependencies, detect GPU/CPU hardware, and configure `.env` across macOS (Apple Silicon M-Series / Intel) and Ubuntu / Debian Linux:
+
+```bash
+# Make executable and run setup
+chmod +x setup_paddle.sh
+./setup_paddle.sh
+```
+
+**Options & Flags:**
+```bash
+# Pre-download the model weights (~1.9 GB) into local cache during setup
+./setup_paddle.sh --download-models
+
+# Force GPU mode on Linux (CUDA)
+./setup_paddle.sh --gpu
+
+# Force CPU mode
+./setup_paddle.sh --cpu
+
+# Skip modifying .env
+./setup_paddle.sh --skip-env
+```
+
 ### 3. Configure Local `.env`
 
 ```ini
@@ -465,9 +587,20 @@ REDIS_URL="redis://localhost:6379/0"
 CELERY_BROKER_URL="redis://localhost:6379/0"
 CELERY_RESULT_BACKEND="redis://localhost:6379/0"
 
+# OCR Provider ("gemini" or "paddleocr_vl")
+OCR_PROVIDER="gemini"
+
 # Gemini OCR
 GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-3.6-flash"
+
+# PaddleOCR-VL-1.6 Provider
+PADDLEOCR_VL_PIPELINE_VERSION="v1.6"
+PADDLEOCR_VL_MODEL_NAME="PaddlePaddle/PaddleOCR-VL-1.6"
+PADDLEOCR_VL_BACKEND="vllm-server"
+PADDLEOCR_VL_SERVER_URL="http://localhost:8080/v1"
+PADDLEOCR_VL_DEVICE="cpu"
+PADDLEOCR_VL_TIMEOUT_SECONDS=120
 
 # Storage
 UPLOAD_DIR="uploads"
@@ -497,6 +630,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 9000
 ## REST API Endpoints & Example cURL Commands
 
 Interactive documentation is available at:
+
 - **Live Swagger UI**: [http://156.67.104.24:9000/docs](http://156.67.104.24:9000/docs) (Local: [http://localhost:9000/docs](http://localhost:9000/docs))
 - **Live ReDoc**: [http://156.67.104.24:9000/redoc](http://156.67.104.24:9000/redoc) (Local: [http://localhost:9000/redoc](http://localhost:9000/redoc))
 
@@ -506,12 +640,20 @@ Interactive documentation is available at:
 **Status**: `202 Accepted`
 
 ```bash
+# Upload using default configured OCR engine
 curl -X POST "http://localhost:9000/api/v1/documents" \
   -H "Accept: application/json" \
   -F "file=@sample_invoice.pdf;type=application/pdf"
+
+# Upload and explicitly select PaddleOCR-VL-1.6
+curl -X POST "http://localhost:9000/api/v1/documents" \
+  -H "Accept: application/json" \
+  -F "file=@sample_invoice.pdf;type=application/pdf" \
+  -F "provider=paddleocr_vl"
 ```
 
 **Response (`202 Accepted`)**:
+
 ```json
 {
   "success": true,
@@ -544,6 +686,7 @@ curl -X GET "http://localhost:9000/api/v1/jobs/job_9f8e7d6c5b4a" \
 ```
 
 **Response while Processing (`200 OK`)**:
+
 ```json
 {
   "success": true,
@@ -579,6 +722,7 @@ curl -X GET "http://localhost:9000/api/v1/jobs/job_9f8e7d6c5b4a/result" \
 ```
 
 **Response when Completed (`200 OK`)**:
+
 ```json
 {
   "success": true,
@@ -598,6 +742,7 @@ curl -X GET "http://localhost:9000/api/v1/jobs/job_9f8e7d6c5b4a/result" \
 ```
 
 **Response while Processing (`202 Accepted`)**:
+
 ```json
 {
   "success": true,
@@ -625,6 +770,7 @@ curl -X GET "http://localhost:9000/api/v1/documents/doc_a1b2c3d4e5f6" \
 ```
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "success": true,
@@ -664,6 +810,7 @@ curl -X GET "http://localhost:9000/api/v1/health"
 ```
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "success": true,
@@ -687,13 +834,10 @@ curl -X GET "http://localhost:9000/api/v1/health"
 
 1. **Celery Late Acknowledgments (`task_acks_late=True`) & Message Safety**:
    Celery is explicitly configured with `task_acks_late=True` and `task_reject_on_worker_lost=True`. The message broker (Redis) does not remove the task acknowledgment until the worker successfully finishes the task. If a worker process terminates abruptly (OOM killer, SIGKILL, hardware fault), the unacknowledged message is automatically rejected and returned to the queue, allowing an active worker to pick it up.
-
 2. **Database State & Idempotency Check**:
    When another worker claims the re-queued task, it runs `query.with_for_update()` in PostgreSQL to lock the job row. If the previous worker crashed after writing the result, the task detects `job.status == JobStatus.COMPLETED` or an existing `Result` record with `unique=True` on `job_id`, skipping redundant Gemini API calls and exiting idempotently.
-
 3. **Retry Counter & Exponential Backoff**:
    The `attempts` counter in the `jobs` table tracks execution counts. If the crash occurred during processing, the new worker increments `job.attempts`. If it exceeds the maximum threshold (3 attempts), the task transitions to `failed` and records the failure reason in `job.error`, preventing infinite crash loops (poison-pill prevention).
-
 4. **Periodic Stale Job Sweeper (Heartbeat Reconciliation)**:
    In production, a Celery Beat periodic task (or watchdog cron) queries for jobs with `status = 'processing'` whose `started_at` timestamp is older than a configured timeout (e.g., > 15 minutes) and re-enqueues them or marks them failed if workers permanently vanished.
 
@@ -704,18 +848,19 @@ curl -X GET "http://localhost:9000/api/v1/health"
 To scale horizontally, we increase worker concurrency or container replicas (`docker compose up --scale worker=10` or Kubernetes HPA). When scaling from 1 to 10 workers, the following bottlenecks appear in order:
 
 1. **Gemini API Rate Limits (Primary Bottleneck)**:
+
    - *Problem*: External LLM providers enforce strict RPM (Requests Per Minute) and TPM (Tokens Per Minute) quotas (e.g., 15 RPM on free tier, 1,000+ RPM on paid tiers). Ten concurrent workers will quickly trigger HTTP 429 errors.
    - *Mitigation*: Configure Celery task rate limits (e.g., `rate_limit="30/m"` on the task), implement distributed token-bucket rate limiters in Redis, or utilize the Gemini Batch API for bulk throughput.
-
 2. **PostgreSQL Connection Pool Exhaustion**:
+
    - *Problem*: Each Celery worker process maintains a database connection pool. Ten workers with 4 concurrency threads each can consume 40+ connections, competing with FastAPI web requests and exceeding default PostgreSQL limits (`max_connections = 100`).
    - *Mitigation*: Deploy **PgBouncer** in front of PostgreSQL for transaction-level connection pooling, reducing active DB connections to a small, reusable pool.
-
 3. **Local Filesystem & Shared Volume Bottlenecks**:
+
    - *Problem*: With multiple worker containers on distributed compute nodes (e.g., Kubernetes pods), local disk volumes cannot be shared across nodes. Concurrent file reads/writes on network-attached storage (NFS/EFS) introduce disk IOPS saturation.
    - *Mitigation*: Replace local filesystem storage (`/uploads`) with S3-compatible cloud object storage (AWS S3, Google Cloud Storage, or MinIO) using pre-signed upload URLs.
-
 4. **Task Prefetch & Starvation**:
+
    - *Problem*: If workers prefetch tasks ahead of time (`worker_prefetch_multiplier > 1`), one worker might hold multiple long-running OCR tasks while other workers sit idle.
    - *Mitigation*: Keep `worker_prefetch_multiplier=1` (already configured in `celery_app.py`) so workers only claim tasks when they are ready to process them.
 
@@ -725,21 +870,17 @@ To scale horizontally, we increase worker concurrency or container replicas (`do
 
 1. **Fast Asynchronous Ingestion Buffer**:
    The FastAPI web tier does **not** process documents synchronously. Uploading a document takes ~5–10ms (saving file bytes, computing SHA-256, writing DB records, and sending a lightweight message to Redis). The web server can easily absorb 1,000 incoming requests within seconds and returns `202 Accepted` immediately, buffering the load safely in Redis.
-
 2. **Direct-to-Object-Storage Uploads (Pre-signed S3/GCS URLs)**:
    To prevent 1,000 concurrent file streams from exhausting API server memory and network bandwidth, clients request a pre-signed S3/GCS PUT URL via `POST /documents/presign`. The client uploads the file directly to cloud storage, and only sends metadata to FastAPI to trigger the Celery task.
-
 3. **Autoscaling Workers via KEDA (Kubernetes Event-driven Autoscaling)**:
    Using KEDA, worker pods scale dynamically based on the queue depth (`LLEN document_processing_queue`). When the queue spikes to 1,000 tasks, KEDA immediately scales the worker deployment from 2 to 20+ replicas, draining the backlog rapidly.
-
 4. **Queue Partitioning & Priority Queues**:
    Split traffic into distinct queues:
+
    - `interactive_queue`: High-priority, small single-page documents processed immediately.
    - `batch_queue`: Large multi-page documents and bulk uploads processed with lower concurrency to protect LLM quota.
-
 5. **Gemini Batch Processing API**:
    For large spikes, batch tasks into asynchronous Gemini Batch API jobs. This offers 50% lower cost, separate and significantly higher quotas, and decoupled completion webhooks.
-
 6. **Content Deduplication**:
    Identical documents uploaded multiple times during a spike are deduplicated via SHA-256 hash lookup, bypassing Gemini OCR calls completely.
 
@@ -751,9 +892,9 @@ The system implements defense-in-depth deduplication across three layers:
 
 1. **Cryptographic SHA-256 Stream Hashing (Upload Layer)**:
    During file upload, the API streams file chunks through `hashlib.sha256()` without loading the full file into RAM, storing a unique 64-character hex hash on the `Document` record (`file_hash` with DB index).
-
 2. **Deduplication Cache Lookup (Task Execution Layer)**:
    Before dispatching a call to the Google Gemini API, the Celery worker queries the database:
+
    ```python
    cached_result = (
        db.query(Result)
@@ -766,13 +907,13 @@ The system implements defense-in-depth deduplication across three layers:
        .first()
    )
    ```
-   If a matching document was already processed, the worker copies the extracted text to a new `Result` record marked `provider="gemini (deduplicated)"`, sets `job.status = 'completed'`, and finishes in < 5ms without incurring external API latency or cost.
 
+   If a matching document was already processed, the worker copies the extracted text to a new `Result` record marked `provider="gemini (deduplicated)"`, sets `job.status = 'completed'`, and finishes in < 5ms without incurring external API latency or cost.
 3. **Redis Distributed Locks (In-Flight Concurrency Control)**:
    To prevent duplicate processing when two identical files are uploaded at the exact same millisecond before either completes:
+
    - The worker acquires a Redis distributed mutex: `redis.set(f"lock:doc_hash:{file_hash}", job_id, nx=True, ex=300)`.
    - If the lock is already held by another worker, the second task delays with a short backoff until the first worker completes and populates the cache.
-
 4. **Database-Level Unique Constraints (Storage Layer)**:
    The `results` table enforces a `UNIQUE` constraint on `job_id`, guaranteeing that even in the event of unexpected race conditions, a job can never have duplicate result entries in the database.
 
@@ -788,6 +929,7 @@ While the current architecture leverages Google Gemini Multimodal OCR (`gemini-3
 - **Architecture**: Vision-Language Model (VLM) engineered by PaddlePaddle specifically for multimodal document intelligence, fine-grained visual text recognition, and complex document layout analysis.
 
 #### Key Advantages of Integrating PaddleOCR-VL-1.6:
+
 1. **Self-Hosted On-Premise Execution (Data Sovereignty)**:
    - Deploys directly onto local or private cloud GPU/CPU worker nodes (via PyTorch / ONNX Runtime / TensorRT).
    - Zero document bytes or extracted text leave the private enterprise network, providing compliance with **HIPAA**, **GDPR**, **SOC 2**, and strict banking regulations.
@@ -835,18 +977,19 @@ However, in production enterprise environments, the broader AI ecosystem provide
 #### Specialized Domain Models Breakdown:
 
 1. **Invoices, Receipts & Financial Bills**:
+
    - **Specialized Models**: **LayoutLMv3** (Microsoft), **Donut** (Document Understanding Transformer), **DocQuery**.
    - **Why More Precise than General LLMs?**: Financial documents and receipts rely heavily on 2D spatial layouts (e.g. aligning a tax label on the left with a currency amount on the right). LayoutLMv3 unifies textual tokens, visual patches, and 2D bounding-box coordinates to directly extract structured key-value pairs (`vendor_name`, `invoice_number`, `tax_rate`, `line_items[]`) into structured JSON with higher extraction fidelity and lower latency than general LLMs.
-
 2. **Handwritten & Cursive Text**:
+
    - **Specialized Models**: **TrOCR** (Transformer OCR by Microsoft), **CRNN with CTC loss**.
    - **Why More Precise than General LLMs?**: Scanned handwritten notes, medical prescriptions, and cursive application forms present extreme stroke thickness variability and irregular character spacing. TrOCR leverages an image Transformer encoder coupled with a sequence-to-sequence language decoder pre-trained on large-scale handwriting datasets (IAM Handwriting Database), achieving significantly lower Character Error Rates (CER) on cursive scripts.
-
 3. **Dense Tables & Financial Reports**:
+
    - **Specialized Models**: **Table-Transformer (TATR)** (Microsoft), **PaddleOCR Table Recognition**.
    - **Why More Precise than General LLMs?**: Multi-page balance sheets and borderless matrices often suffer from column hallucination in general LLMs. Table-Transformer uses object-detection bounding boxes to segment row borders, column separators, and spanning headers, generating syntactically valid HTML `<table>` or CSV formats.
-
 4. **Academic Papers & Mathematical Formulas**:
+
    - **Specialized Models**: **Nougat** (Neural Optical Understanding for Academic Documents by Meta).
    - **Why More Precise than General LLMs?**: Nougat translates rendered raster page images directly into clean LaTeX syntax, preserving subscript, superscript, fractions, matrices, and scientific citations.
 
@@ -854,13 +997,13 @@ However, in production enterprise environments, the broader AI ecosystem provide
 
 ### 3. Model Architecture Comparison Matrix
 
-| Model / Architecture | Primary Domain | Deployment Type | Privacy / Data Sovereignty | Latency (avg) | Cost Profile | Best Used For |
-|:---|:---|:---|:---|:---|:---|:---|
-| **Google Gemini 3.6 Flash** *(Current)* | General multimodal documents, PDF reports, forms | Managed Cloud API | Outbound cloud transmission (requires API key) | ~1.5s – 4.0s | Pay-per-token API pricing | Fast zero-infra setup, diverse unstructured documents, general reasoning |
-| **[PaddleOCR-VL-1.6](http://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6)** | Multilingual VLM, structured layouts, tables | Self-hosted / Local GPU | 100% On-Premise (air-gapped compliant) | ~0.5s – 1.8s (GPU) | Fixed infrastructure compute (zero token fees) | Enterprise deployments requiring strict privacy, high throughput, and table parsing |
-| **Microsoft TrOCR** | Handwritten notes, cursive forms, prescriptions | Self-hosted / Local GPU or CPU | 100% On-Premise | ~0.3s – 1.0s | Open-source (zero API cost) | Scanned doctor notes, handwritten government/bank forms, cursive text |
-| **LayoutLMv3** | Invoices, receipts, tax forms, bills | Self-hosted / Fine-tunable | 100% On-Premise | ~0.2s – 0.8s | Open-source (zero API cost) | Automated accounts payable, receipt reconciliation, structured key-value extraction |
-| **Nougat (Meta)** | Academic papers, scientific formulas | Self-hosted / Local GPU | 100% On-Premise | ~1.0s – 2.5s | Open-source (zero API cost) | Scientific publications, LaTeX formula preservation, textbook digitization |
+| Model / Architecture                                                             | Primary Domain                                   | Deployment Type                | Privacy / Data Sovereignty                     | Latency (avg)       | Cost Profile                                   | Best Used For                                                                       |
+| :------------------------------------------------------------------------------- | :----------------------------------------------- | :----------------------------- | :--------------------------------------------- | :------------------ | :--------------------------------------------- | :---------------------------------------------------------------------------------- |
+| **Google Gemini 3.6 Flash** *(Current)*                                  | General multimodal documents, PDF reports, forms | Managed Cloud API              | Outbound cloud transmission (requires API key) | ~1.5s – 4.0s       | Pay-per-token API pricing                      | Fast zero-infra setup, diverse unstructured documents, general reasoning            |
+| **[PaddleOCR-VL-1.6](http://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6)** | Multilingual VLM, structured layouts, tables     | Self-hosted / Local GPU        | 100% On-Premise (air-gapped compliant)         | ~0.5s – 1.8s (GPU) | Fixed infrastructure compute (zero token fees) | Enterprise deployments requiring strict privacy, high throughput, and table parsing |
+| **Microsoft TrOCR**                                                        | Handwritten notes, cursive forms, prescriptions  | Self-hosted / Local GPU or CPU | 100% On-Premise                                | ~0.3s – 1.0s       | Open-source (zero API cost)                    | Scanned doctor notes, handwritten government/bank forms, cursive text               |
+| **LayoutLMv3**                                                             | Invoices, receipts, tax forms, bills             | Self-hosted / Fine-tunable     | 100% On-Premise                                | ~0.2s – 0.8s       | Open-source (zero API cost)                    | Automated accounts payable, receipt reconciliation, structured key-value extraction |
+| **Nougat (Meta)**                                                          | Academic papers, scientific formulas             | Self-hosted / Local GPU        | 100% On-Premise                                | ~1.0s – 2.5s       | Open-source (zero API cost)                    | Scientific publications, LaTeX formula preservation, textbook digitization          |
 
 ---
 
@@ -894,7 +1037,9 @@ class PaddleOCRVLProcessor(DocumentProcessor):
 ```
 
 #### Dynamic Engine Selection Roadmap
+
 Future releases can introduce dynamic engine routing via query parameter or automated document classification:
+
 ```bash
 # Explicit engine selection via API query parameter:
 POST /api/v1/documents?engine=paddleocr-vl
@@ -902,6 +1047,7 @@ POST /api/v1/documents?engine=trocr
 POST /api/v1/documents?engine=layoutlmv3
 POST /api/v1/documents?engine=gemini
 ```
+
 An intelligent upstream classifier can inspect uploaded files (e.g. detecting cursive handwriting vs. invoice structure) and dynamically route the task to the optimal model, maximizing extraction precision, privacy, and cost efficiency.
 
 ---
