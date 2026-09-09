@@ -170,22 +170,58 @@ if ($HasGpu -and ($Device -eq "gpu")) {
         }
     }
 
-    # Strategy 2: Direct pre-compiled wheel download from CDN
+    # Strategy 2: Direct pre-compiled wheel download from CDN with live terminal progress bar
     if (-not $paddleInstalled) {
-        Write-Host "  Index lookup did not succeed. Trying direct CDN wheel installation..." -ForegroundColor Cyan
+        Write-Host "`n  Downloading pre-compiled CUDA wheel with live progress bar..." -ForegroundColor Cyan
         $directWheels = @(
             "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl",
             "https://paddle-whl.cdn.bcebos.com/stable/cu118/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-$pyTag-$pyTag-win_amd64.whl"
         )
 
         foreach ($wheelUrl in $directWheels) {
-            Write-Host "  Downloading and installing wheel directly: $wheelUrl" -ForegroundColor Cyan
-            $res = Invoke-Pip -Arguments @("install", $wheelUrl, "--trusted-host", "paddle-whl.cdn.bcebos.com") -IgnoreError
-            if ($res -eq 0) {
-                $paddleInstalled = $true
-                $Device = "gpu"
-                Write-Host "  paddlepaddle-gpu installed successfully from direct CDN wheel!" -ForegroundColor Green
-                break
+            $wheelFileName = [System.IO.Path]::GetFileName($wheelUrl)
+            $localWheelPath = Join-Path $ProjectRoot $wheelFileName
+
+            Write-Host "`n  Downloading $wheelFileName (~580 MB)..." -ForegroundColor Cyan
+            Write-Host "  Source: $wheelUrl" -ForegroundColor Gray
+            Write-Host "  Progress:" -ForegroundColor Yellow
+
+            $downloadSuccess = $false
+            $curlCmd = Get-Command curl.exe -ErrorAction SilentlyContinue
+
+            if ($curlCmd) {
+                # Run curl with live progress bar (#) and auto-resume (-C -)
+                & curl.exe -# -L -C - --retry 3 --retry-delay 2 -o "$localWheelPath" "$wheelUrl"
+                if (($LASTEXITCODE -eq 0) -and (Test-Path "$localWheelPath") -and ((Get-Item "$localWheelPath").Length -gt 100000000)) {
+                    $downloadSuccess = $true
+                }
+            } else {
+                # Fallback to PowerShell WebRequest
+                try {
+                    Invoke-WebRequest -Uri $wheelUrl -OutFile "$localWheelPath"
+                    if ((Test-Path "$localWheelPath") -and ((Get-Item "$localWheelPath").Length -gt 100000000)) {
+                        $downloadSuccess = $true
+                    }
+                } catch {
+                    Write-Host "  Download error: $_" -ForegroundColor Yellow
+                }
+            }
+
+            if ($downloadSuccess) {
+                Write-Host "`n  Download completed! Installing wheel into virtual environment..." -ForegroundColor Green
+                $res = Invoke-Pip -Arguments @("install", "$localWheelPath") -IgnoreError
+                Remove-Item "$localWheelPath" -Force -ErrorAction SilentlyContinue
+                if ($res -eq 0) {
+                    $paddleInstalled = $true
+                    $Device = "gpu"
+                    Write-Host "  paddlepaddle-gpu installed successfully from downloaded wheel!" -ForegroundColor Green
+                    break
+                }
+            } else {
+                Write-Host "  Could not complete download from $wheelUrl" -ForegroundColor Yellow
+                if (Test-Path "$localWheelPath") {
+                    Remove-Item "$localWheelPath" -Force -ErrorAction SilentlyContinue
+                }
             }
         }
     }

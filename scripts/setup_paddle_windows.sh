@@ -219,21 +219,29 @@ if [[ "${DETECTED_DEVICE}" == "gpu" && "${HAS_GPU}" -eq 1 ]]; then
         fi
     done
 
-    # Strategy 2: Direct pre-compiled wheel download from CDN
+    # Strategy 2: Direct pre-compiled wheel download from CDN with live progress bar
     if [[ ${PADDLE_INSTALLED} -eq 0 ]]; then
-        echo "  Index lookup failed. Trying direct CDN wheel installation..."
+        echo -e "\n  Downloading pre-compiled CUDA wheel with live progress bar..."
         DIRECT_WHEELS=(
             "https://paddle-whl.cdn.bcebos.com/stable/cu126/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
             "https://paddle-whl.cdn.bcebos.com/stable/cu118/paddlepaddle-gpu/paddlepaddle_gpu-3.3.1-${PY_TAG}-${PY_TAG}-win_amd64.whl"
         )
 
         for wheel_url in "${DIRECT_WHEELS[@]}"; do
-            echo "  Downloading and installing wheel directly: ${wheel_url}..."
-            if "${VENV_PYTHON}" -m pip install "${wheel_url}" --trusted-host paddle-whl.cdn.bcebos.com; then
-                PADDLE_INSTALLED=1
-                echo -e "  ${GREEN}paddlepaddle-gpu installed successfully from direct CDN wheel!${NC}"
-                break
+            wheel_name="$(basename "${wheel_url}")"
+            local_wheel="${PROJECT_ROOT}/${wheel_name}"
+            echo -e "  Downloading ${wheel_name} (~580 MB)..."
+            if curl -# -L -C - --retry 3 -o "${local_wheel}" "${wheel_url}"; then
+                echo -e "  Installing downloaded wheel into venv..."
+                if "${VENV_PYTHON}" -m pip install "${local_wheel}"; then
+                    PADDLE_INSTALLED=1
+                    rm -f "${local_wheel}"
+                    echo -e "  ${GREEN}paddlepaddle-gpu installed successfully from downloaded wheel!${NC}"
+                    break
+                fi
+                rm -f "${local_wheel}"
             fi
+            rm -f "${local_wheel}"
         done
     fi
 
