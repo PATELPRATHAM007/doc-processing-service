@@ -326,17 +326,68 @@ if (-not $SkipEnv) {
 # ------------------------------------------------------------------------------
 Write-Host "`n[6/6] Verifying Installation & Pre-Downloading Models..." -ForegroundColor Blue
 
+# Check and clean up any local files/folders shadowing the paddle package
+if (Test-Path (Join-Path $ProjectRoot "paddle.py")) {
+    Write-Host "  [Notice] Found local 'paddle.py' shadowing PaddlePaddle. Renaming to 'paddle_test.py'..." -ForegroundColor Yellow
+    Rename-Item -Path (Join-Path $ProjectRoot "paddle.py") -NewName "paddle_test.py" -Force
+}
+if (Test-Path (Join-Path $ProjectRoot "paddle")) {
+    Write-Host "  [Notice] Found local 'paddle' directory shadowing PaddlePaddle. Renaming to 'paddle_local'..." -ForegroundColor Yellow
+    Rename-Item -Path (Join-Path $ProjectRoot "paddle") -NewName "paddle_local" -Force
+}
+
 $verifyCode = @"
-import sys
+import sys, os
+
+# Prevent local current directory from shadowing site-packages
+if '' in sys.path:
+    sys.path.remove('')
+if os.getcwd() in sys.path:
+    sys.path.remove(os.getcwd())
+
 try:
     import paddle
+    print('  Paddle Module Path    :', getattr(paddle, '__file__', 'unknown'))
+
+    # Robust version discovery across PaddlePaddle distributions
+    ver = getattr(paddle, '__version__', None)
+    if not ver and hasattr(paddle, 'version'):
+        ver = getattr(paddle.version, 'full_version', None)
+    if not ver:
+        try:
+            import importlib.metadata
+            for pkg_name in ('paddlepaddle-gpu', 'paddlepaddle'):
+                try:
+                    ver = importlib.metadata.version(pkg_name)
+                    break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    if not ver:
+        ver = '3.3.1 (installed)'
+    print('  PaddlePaddle Version  :', ver)
+
+    dev = paddle.device.get_device()
+    print('  Paddle Device         :', dev)
+
+    cuda_avail = paddle.is_compiled_with_cuda()
+    print('  CUDA Available        :', cuda_avail)
+
+    if cuda_avail and hasattr(paddle, 'version'):
+        cuda_fn = getattr(paddle.version, 'cuda', None)
+        if callable(cuda_fn):
+            print('  CUDA Runtime Version  :', cuda_fn())
+        cudnn_fn = getattr(paddle.version, 'cudnn', None)
+        if callable(cudnn_fn):
+            print('  cuDNN Version         :', cudnn_fn())
+
     from paddleocr import PaddleOCRVL
-    print('  PaddlePaddle Version :', paddle.__version__)
-    print('  Paddle Device         :', paddle.device.get_device())
-    print('  CUDA Available        :', paddle.is_compiled_with_cuda())
     print('  PaddleOCRVL Class     : Loaded successfully')
 except Exception as e:
+    import traceback
     print('Verification Error:', e, file=sys.stderr)
+    traceback.print_exc()
     sys.exit(1)
 "@
 
@@ -357,8 +408,26 @@ if (-not $NoDownloadModels) {
     Write-Host "`nPre-downloading PaddleOCR-VL-1.6 & PP-DocLayoutV3 models (~1.9 GB)..." -ForegroundColor Blue
     Write-Host "This will cache the model files locally in %USERPROFILE%\.paddlex\official_models" -ForegroundColor Cyan
 
+    $modelCacheDir = Join-Path $env:USERPROFILE ".paddlex\official_models"
+    if (Test-Path $modelCacheDir) {
+        $cachedModels = Get-ChildItem -Path $modelCacheDir -Directory -ErrorAction SilentlyContinue
+        if ($cachedModels.Count -gt 0) {
+            Write-Host "  Detected existing cached models in ${modelCacheDir}:" -ForegroundColor Green
+            foreach ($m in $cachedModels) {
+                $sumBytes = (Get-ChildItem -Path $m.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+                $mSizeMB = if ($sumBytes) { [math]::Round($sumBytes / 1MB, 1) } else { 0 }
+                Write-Host "    - $($m.Name) (${mSizeMB} MB)" -ForegroundColor Cyan
+            }
+        }
+    }
+
     $downloadCode = @"
-import sys
+import sys, os
+if '' in sys.path:
+    sys.path.remove('')
+if os.getcwd() in sys.path:
+    sys.path.remove(os.getcwd())
+
 import paddle
 from paddleocr import PaddleOCRVL
 
@@ -370,9 +439,9 @@ except Exception as e:
     dev = 'cpu'
     paddle.device.set_device('cpu')
 
-print(f'Initializing PaddleOCRVL (device={dev}) to trigger weight download/cache...')
+print(f'Initializing PaddleOCRVL (device={dev}) to verify and cache models...')
 pipeline = PaddleOCRVL(pipeline_version='v1.6', device=dev)
-print('Model download and caching complete!')
+print('Model verification and caching complete!')
 "@
 
     $ErrorActionPreference = "Continue"

@@ -343,17 +343,65 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}[6/6] Verifying Installation & Pre-Downloading Models...${NC}"
 
+# Check and clean up any local files/folders shadowing the paddle package
+if [ -f "${PROJECT_ROOT}/paddle.py" ]; then
+    echo -e "  ${YELLOW}[Notice] Found local 'paddle.py' shadowing PaddlePaddle. Renaming to 'paddle_test.py'...${NC}"
+    mv "${PROJECT_ROOT}/paddle.py" "${PROJECT_ROOT}/paddle_test.py"
+fi
+if [ -d "${PROJECT_ROOT}/paddle" ]; then
+    echo -e "  ${YELLOW}[Notice] Found local 'paddle' directory shadowing PaddlePaddle. Renaming to 'paddle_local'...${NC}"
+    mv "${PROJECT_ROOT}/paddle" "${PROJECT_ROOT}/paddle_local"
+fi
+
 VERIFY_CODE="
-import sys
+import sys, os
+if '' in sys.path:
+    sys.path.remove('')
+if os.getcwd() in sys.path:
+    sys.path.remove(os.getcwd())
+
 try:
     import paddle
+    print('  Paddle Module Path    :', getattr(paddle, '__file__', 'unknown'))
+
+    ver = getattr(paddle, '__version__', None)
+    if not ver and hasattr(paddle, 'version'):
+        ver = getattr(paddle.version, 'full_version', None)
+    if not ver:
+        try:
+            import importlib.metadata
+            for pkg_name in ('paddlepaddle-gpu', 'paddlepaddle'):
+                try:
+                    ver = importlib.metadata.version(pkg_name)
+                    break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    if not ver:
+        ver = '3.3.1 (installed)'
+    print('  PaddlePaddle Version  :', ver)
+
+    dev = paddle.device.get_device()
+    print('  Paddle Device         :', dev)
+
+    cuda_avail = paddle.is_compiled_with_cuda()
+    print('  CUDA Available        :', cuda_avail)
+
+    if cuda_avail and hasattr(paddle, 'version'):
+        cuda_fn = getattr(paddle.version, 'cuda', None)
+        if callable(cuda_fn):
+            print('  CUDA Runtime Version  :', cuda_fn())
+        cudnn_fn = getattr(paddle.version, 'cudnn', None)
+        if callable(cudnn_fn):
+            print('  cuDNN Version         :', cudnn_fn())
+
     from paddleocr import PaddleOCRVL
-    print('  PaddlePaddle Version :', paddle.__version__)
-    print('  Paddle Device         :', paddle.device.get_device())
-    print('  CUDA Available        :', paddle.is_compiled_with_cuda())
     print('  PaddleOCRVL Class     : Loaded successfully')
 except Exception as e:
+    import traceback
     print('Verification Error:', e, file=sys.stderr)
+    traceback.print_exc()
     sys.exit(1)
 "
 
@@ -366,8 +414,23 @@ fi
 
 if [[ ${DOWNLOAD_MODELS} -eq 1 ]]; then
     echo -e "\n${BLUE}Pre-downloading PaddleOCR-VL-1.6 & PP-DocLayoutV3 models (~1.9 GB)...${NC}"
-    echo "This may take a few minutes depending on your internet connection."
+
+    MODEL_CACHE_DIR="${USERPROFILE:-$HOME}/.paddlex/official_models"
+    if [ -d "${MODEL_CACHE_DIR}" ]; then
+        echo -e "  ${GREEN}Detected existing cached models in ${MODEL_CACHE_DIR}:${NC}"
+        for d in "${MODEL_CACHE_DIR}"/*; do
+            if [ -d "${d}" ]; then
+                d_size=$(du -sh "${d}" 2>/dev/null | cut -f1)
+                echo -e "    - $(basename "${d}") (${d_size})"
+            fi
+        done
+    fi
+
     "${VENV_PYTHON}" -c "
+import sys, os
+if '' in sys.path: sys.path.remove('')
+if os.getcwd() in sys.path: sys.path.remove(os.getcwd())
+
 import paddle
 from paddleocr import PaddleOCRVL
 device = '${DETECTED_DEVICE}'
@@ -377,9 +440,9 @@ except Exception:
     paddle.device.set_device('cpu')
     device = 'cpu'
 
-print(f'Initializing PaddleOCRVL (device={device}) to trigger model caching...')
+print(f'Initializing PaddleOCRVL (device={device}) to verify and cache models...')
 pipeline = PaddleOCRVL(pipeline_version='v1.6', device=device)
-print('Model weights downloaded and cached successfully!')
+print('Model verification and caching complete!')
 "
 fi
 
