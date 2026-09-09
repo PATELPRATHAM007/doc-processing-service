@@ -71,7 +71,7 @@ def _check_migrations() -> str:
     previous_level = alembic_log.level
     alembic_log.setLevel(logging.WARNING)
     try:
-        from alembic.config import Config
+        from alembic.config import Config  # noqa: I001
         from alembic.runtime.migration import MigrationContext
         from alembic.script import ScriptDirectory
         from app.db.session import engine
