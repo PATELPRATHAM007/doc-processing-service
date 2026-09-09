@@ -120,7 +120,8 @@ function Invoke-Pip {
     $ErrorActionPreference = $prevAction
 
     if (-not $IgnoreError -and ($code -ne 0)) {
-        throw "pip command failed with exit code $code: pip $($Arguments -join ' ')"
+        $argList = $Arguments -join ' '
+        throw "pip command failed with exit code $code. Executed: pip $argList"
     }
     return $code
 }
