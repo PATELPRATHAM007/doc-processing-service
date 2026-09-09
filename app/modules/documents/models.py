@@ -92,6 +92,7 @@ class Job(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=JobStatus.QUEUED, index=True
     )
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

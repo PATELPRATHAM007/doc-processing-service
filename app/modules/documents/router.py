@@ -7,7 +7,16 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -45,12 +54,40 @@ async def upload_document(
         UploadFile, File(description="PDF or image file to extract text from")
     ],
     db: Annotated[Session, Depends(get_db)],
+    provider: Annotated[
+        str | None,
+        Form(
+            description="OCR provider to use: 'gemini' or 'paddleocr_vl'. Defaults to configured OCR_PROVIDER."
+        ),
+    ] = None,
 ) -> Any:
     """Accept a document upload, persist metadata, create a processing job,
 
     and dispatch an asynchronous extraction task to Celery workers.
     """
-    api_logger.info("Received document upload request (filename=%s)", file.filename)
+    api_logger.info(
+        "Received document upload request (filename=%s, provider=%s)",
+        file.filename,
+        provider or settings.OCR_PROVIDER,
+    )
+
+    # Validate provider if provided
+    selected_provider = (provider or settings.OCR_PROVIDER).lower().strip()
+    if selected_provider not in (
+        "gemini",
+        "paddleocr_vl",
+        "paddleocr",
+        "paddleocr-vl",
+        "paddleocr-vl-1.6",
+    ):
+        allowed = "gemini, paddleocr_vl"
+        api_logger.warning("Upload rejected: unsupported provider '%s'", provider)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported OCR provider '{provider}'. Allowed: {allowed}",
+        )
+    if selected_provider in ("paddleocr", "paddleocr-vl", "paddleocr-vl-1.6"):
+        selected_provider = "paddleocr_vl"
 
     if not file.filename:
         api_logger.warning("Upload rejected: filename is empty")
@@ -160,6 +197,7 @@ async def upload_document(
         id=job_id,
         document_id=doc_id,
         status=JobStatus.QUEUED,
+        provider=selected_provider,
         attempts=0,
     )
     db.add(job)
@@ -170,7 +208,11 @@ async def upload_document(
     # Dispatch Celery background task
     try:
         cast(Any, process_document_task).delay(job_id=job.id)
-        api_logger.info("Dispatched Celery task for job_id=%s", job.id)
+        api_logger.info(
+            "Dispatched Celery task for job_id=%s (provider=%s)",
+            job.id,
+            selected_provider,
+        )
     except Exception as exc:
         api_logger.error("Failed to enqueue Celery task for job_id=%s: %s", job.id, exc)
         job.status = JobStatus.FAILED
@@ -188,6 +230,7 @@ async def upload_document(
         size_bytes=document.size_bytes,
         status=document.status,
         job_id=job.id,
+        provider=job.provider,
         message="Document uploaded and queued for processing.",
         created_at=document.created_at,
     )
