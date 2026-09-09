@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import uuid
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -376,3 +377,141 @@ def test_celery_task_executes_with_paddleocr_processor(tmp_path: Path):
         assert "Formula: $E=mc^2$" in saved_result.extracted_text
     finally:
         db.close()
+
+
+def test_paddleocr_vl_extract_clean_text_from_parsing_res_list():
+    """Verify clean plain text is extracted from parsing_res_list without internal metadata."""
+    processor = PaddleOCRVLDocumentProcessor(backend="local")
+
+    mock_page_res = {
+        "input_path": "/fake/doc.pdf",
+        "page_index": 0,
+        "page_count": 1,
+        "parsing_res_list": [
+            {
+                "label": "header_image",
+                "bbox": [194, 43, 515, 115],
+                "score": 0.69,
+                "content": "",
+            },
+            {
+                "label": "header",
+                "bbox": [562, 21, 1013, 54],
+                "score": 0.81,
+                "content": "Immverse Innovations Pvt Ltd",
+            },
+            {
+                "label": "paragraph_title",
+                "bbox": [437, 226, 753, 261],
+                "score": 0.86,
+                "content": "Job Application Form",
+            },
+            {
+                "label": "paragraph_title",
+                "bbox": [109, 300, 391, 330],
+                "score": 0.80,
+                "content": "1. Personal Information:",
+            },
+            {
+                "label": "text",
+                "bbox": [145, 356, 445, 384],
+                "score": 0.83,
+                "content": "• Full Name: Pratham patel",
+            },
+            {
+                "label": "text",
+                "bbox": [145, 408, 458, 436],
+                "score": 0.61,
+                "content": "Date of Birth: 19-03-2003",
+            },
+            {
+                "label": "text",
+                "bbox": [580, 409, 731, 436],
+                "score": 0.54,
+                "content": "Gender: Male",
+            },
+        ],
+    }
+
+    clean_text = processor._extract_clean_text_from_result(mock_page_res)
+
+    # Must contain the clean extracted text
+    assert "Immverse Innovations Pvt Ltd" in clean_text
+    assert "Job Application Form" in clean_text
+    assert "1. Personal Information:" in clean_text
+    assert "• Full Name: Pratham patel" in clean_text
+    assert "Date of Birth: 19-03-2003" in clean_text
+    assert "Gender: Male" in clean_text
+
+    # Must NOT contain internal OCR debug metadata
+    assert "label" not in clean_text
+    assert "bbox" not in clean_text
+    assert "score" not in clean_text
+    assert "coordinate" not in clean_text
+    assert "polygon_points" not in clean_text
+    assert "cls_id" not in clean_text
+    assert "header_image" not in clean_text
+    assert "#################" not in clean_text
+
+
+def test_paddleocr_vl_extract_clean_text_from_objects():
+    """Verify clean text extraction when parsing_res_list contains object instances with attributes."""
+    processor = PaddleOCRVLDocumentProcessor(backend="local")
+
+    class MockBlock:
+        def __init__(self, label: str, content: str, bbox: list[int]):
+            self.label = label
+            self.content = content
+            self.bbox = bbox
+
+    class MockPageResult:
+        def __init__(self, blocks: list[Any]):
+            self.parsing_res_list = blocks
+
+    blocks = [
+        MockBlock("paragraph_title", "Terms & Conditions", [10, 10, 200, 30]),
+        MockBlock("text", "1. All users must agree.", [10, 40, 300, 60]),
+        MockBlock("text", "2. No refunds allowed.", [10, 70, 300, 90]),
+    ]
+    page_res = MockPageResult(blocks)
+
+    clean_text = processor._extract_clean_text_from_result(page_res)
+
+    assert "Terms & Conditions" in clean_text
+    assert "1. All users must agree." in clean_text
+    assert "2. No refunds allowed." in clean_text
+    assert "MockBlock" not in clean_text
+    assert "bbox" not in clean_text
+
+
+def test_paddleocr_vl_process_local_uses_clean_text(tmp_path: Path):
+    """Verify _process_local converts raw pipeline parsing_res_list into clean text without metadata."""
+    img_path = tmp_path / "form.png"
+    Image.new("RGB", (100, 100), color="white").save(img_path)
+
+    mock_page1 = {
+        "parsing_res_list": [
+            {"label": "paragraph_title", "content": "Job Application Form"},
+            {"label": "text", "content": "Full Name: Pratham patel"},
+        ]
+    }
+    mock_page2 = {
+        "parsing_res_list": [
+            {"label": "paragraph_title", "content": "Declaration:"},
+            {"label": "text", "content": "I declare the information is true."},
+        ]
+    }
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.predict.return_value = [mock_page1, mock_page2]
+
+    processor = PaddleOCRVLDocumentProcessor(backend="local", pipeline=mock_pipeline)
+    result = processor.process(img_path, "image/png")
+
+    assert "Job Application Form" in result.text
+    assert "Full Name: Pratham patel" in result.text
+    assert "Declaration:" in result.text
+    assert "I declare the information is true." in result.text
+    assert "parsing_res_list" not in result.text
+    assert "label" not in result.text
+    assert "---" in result.text  # Multi-page separator

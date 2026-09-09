@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 from pathlib import Path
 from typing import Any
 
@@ -150,33 +151,9 @@ class PaddleOCRVLDocumentProcessor(DocumentProcessor):
 
         page_texts: list[str] = []
         for res in output:
-            if isinstance(res, dict):
-                if "markdown_texts" in res and res["markdown_texts"]:
-                    page_texts.append(str(res["markdown_texts"]).strip())
-                elif "markdown" in res and res["markdown"]:
-                    page_texts.append(str(res["markdown"]).strip())
-                elif "text" in res and res["text"]:
-                    page_texts.append(str(res["text"]).strip())
-                else:
-                    page_texts.append(str(res).strip())
-            elif (
-                hasattr(res, "markdown")
-                and isinstance(res.markdown, str)
-                and res.markdown
-            ):
-                page_texts.append(res.markdown.strip())
-            elif (
-                hasattr(res, "markdown_texts")
-                and isinstance(res.markdown_texts, str)
-                and res.markdown_texts
-            ):
-                page_texts.append(res.markdown_texts.strip())
-            elif hasattr(res, "text") and isinstance(res.text, str) and res.text:
-                page_texts.append(res.text.strip())
-            elif isinstance(res, str):
-                page_texts.append(res.strip())
-            else:
-                page_texts.append(str(res).strip())
+            cleaned_page = self._extract_clean_text_from_result(res)
+            if cleaned_page:
+                page_texts.append(cleaned_page)
 
         extracted_text = (
             "\n\n---\n\n".join(page_texts)
@@ -365,3 +342,133 @@ class PaddleOCRVLDocumentProcessor(DocumentProcessor):
                     "pypdfium2 is required for PDF page rendering with PaddleOCR-VL. "
                     "Install pypdfium2 or ensure paddleocr handles PDF locally."
                 ) from exc
+
+    def _extract_clean_text_from_result(self, res: Any) -> str:
+        """Extract clean, properly ordered text from a PaddleOCR-VL prediction result.
+
+        Filters out all internal OCR metadata (bboxes, coordinates, confidence scores,
+        polygon points, image arrays, labels) while preserving headings, section numbers,
+        bullet points, paragraphs, and reading order.
+        """
+        if res is None:
+            return ""
+
+        blocks = None
+        # 1. Extract parsing_res_list from dict or object attribute
+        if isinstance(res, dict) or hasattr(res, "__getitem__"):
+            try:
+                blocks = res.get("parsing_res_list")
+            except Exception:
+                blocks = None
+        if blocks is None and hasattr(res, "parsing_res_list"):
+            blocks = getattr(res, "parsing_res_list", None)
+
+        if blocks and isinstance(blocks, (list, tuple)):
+            extracted_blocks: list[tuple[bool, str]] = []
+            TITLE_LABELS = {
+                "paragraph_title",
+                "title",
+                "header",
+                "section_title",
+                "table",
+            }
+
+            for block in blocks:
+                if isinstance(block, dict):
+                    raw_content = (
+                        block.get("content")
+                        or block.get("block_content")
+                        or block.get("text")
+                        or ""
+                    )
+                    raw_label = block.get("label") or block.get("block_label") or "text"
+                else:
+                    raw_content = (
+                        getattr(block, "content", None)
+                        or getattr(block, "block_content", None)
+                        or getattr(block, "text", None)
+                        or ""
+                    )
+                    raw_label = (
+                        getattr(block, "label", None)
+                        or getattr(block, "block_label", None)
+                        or "text"
+                    )
+
+                content_str = str(raw_content).strip()
+                if not content_str:
+                    continue
+
+                # Strip internal OCR debug artifacts if present
+                cleaned_lines: list[str] = []
+                for line in content_str.split("\n"):
+                    stripped = line.strip()
+                    if (
+                        stripped.startswith("#################")
+                        or stripped.startswith("bbox:")
+                        or stripped.startswith("score:")
+                        or stripped.startswith("coordinate:")
+                        or stripped.startswith("polygon_points:")
+                        or stripped.startswith("cls_id:")
+                        or stripped.startswith("model_settings:")
+                    ):
+                        continue
+                    if stripped.startswith("label:") or stripped.startswith("content:"):
+                        if stripped.startswith("content:"):
+                            line = line.split("content:", 1)[1].lstrip()
+                        else:
+                            continue
+                    cleaned_lines.append(line)
+
+                cleaned_text = "\n".join(cleaned_lines).strip()
+                if not cleaned_text:
+                    continue
+
+                # Identify if block is a title, heading, or numbered section header (e.g., '1. Personal Information:')
+                is_title = str(raw_label).lower() in TITLE_LABELS or bool(
+                    re.match(r"^\d+[\.\)]\s+[A-Z]", cleaned_text)
+                )
+                extracted_blocks.append((is_title, cleaned_text))
+
+            if extracted_blocks:
+                result_parts: list[str] = []
+                for i, (is_title, text) in enumerate(extracted_blocks):
+                    if i == 0:
+                        result_parts.append(text)
+                    else:
+                        prev_is_title, _ = extracted_blocks[i - 1]
+                        if is_title or prev_is_title:
+                            result_parts.append("\n\n" + text)
+                        else:
+                            result_parts.append("\n" + text)
+                return "".join(result_parts).strip()
+
+        # 2. Check for markdown or text attributes/keys
+        if isinstance(res, dict):
+            if "markdown" in res and res["markdown"]:
+                return str(res["markdown"]).strip()
+            if "markdown_texts" in res and res["markdown_texts"]:
+                return str(res["markdown_texts"]).strip()
+            if "text" in res and res["text"]:
+                return str(res["text"]).strip()
+        elif hasattr(res, "markdown") and res.markdown:
+            return str(res.markdown).strip()
+        elif hasattr(res, "text") and res.text:
+            return str(res.text).strip()
+
+        # 3. String representation fallback with artifact filtering
+        text_val = str(res).strip()
+        if text_val.startswith("{") and (
+            "parsing_res_list" in text_val or "layout_det_res" in text_val
+        ):
+            # Extract content using regex from stringified dicts
+            matches = re.findall(
+                r"content:\s*(.*?)(?=\n#{3,}|\nlabel:|\Z)", text_val, re.DOTALL
+            )
+            if matches:
+                clean_matches = [m.strip() for m in matches if m.strip()]
+                if clean_matches:
+                    return "\n\n".join(clean_matches)
+            return ""
+
+        return text_val
